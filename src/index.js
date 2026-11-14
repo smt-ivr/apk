@@ -132,6 +132,8 @@ async function createBuild(request, env) {
 
   const appName = cleanText(body.appName, 40);
   if (!appName) return fail("נא להזין שם לאפליקציה");
+  // "site": an app that shows websites. "lock": an app that locks other apps on the phone.
+  const type = body.type === "lock" ? "lock" : "site";
 
   const sites = [];
   for (const s of Array.isArray(body.sites) ? body.sites.slice(0, MAX_SITES) : []) {
@@ -142,7 +144,7 @@ async function createBuild(request, env) {
     const title = cleanText(s?.title, 40) || new URL(url).hostname;
     sites.push({ title, url, restrictPath: !!s?.restrictPath });
   }
-  if (!sites.length) return fail("נא להזין לפחות כתובת אתר אחת");
+  if (type === "site" && !sites.length) return fail("נא להזין לפחות כתובת אתר אחת");
 
   const extraDomains = [];
   for (const d of Array.isArray(body.extraDomains) ? body.extraDomains.slice(0, MAX_EXTRA) : []) {
@@ -153,6 +155,7 @@ async function createBuild(request, env) {
   }
 
   const pin = String(body.pin ?? "").trim();
+  if (type === "lock" && !pin) return fail("נא לבחור קוד");
   if (pin && !/^\d{4,8}$/.test(pin)) return fail("הקוד צריך להיות 4 עד 8 ספרות");
   const pinSalt = pin ? randomHex(16) : "";
   const pinHash = pin ? await sha256Hex(pinSalt + pin) : "";
@@ -167,11 +170,16 @@ async function createBuild(request, env) {
     icon = m[1];
   }
 
-  // Same name + first site -> same package, so a new build installs as an update.
-  const firstHost = new URL(sites[0].url).hostname.replace(/^www\./, "");
-  const appId = "uk.smti.app.a" + (await sha256Hex(firstHost + "|" + appName)).slice(0, 12);
-
-  const config = { sites, extraDomains, orientation, pinSalt, pinHash };
+  // Same name (+ first site) -> same package, so a new build installs as an update.
+  let appId, config;
+  if (type === "lock") {
+    appId = "uk.smti.lock.a" + (await sha256Hex("lock|" + appName)).slice(0, 12);
+    config = { type, pinSalt, pinHash };
+  } else {
+    const firstHost = new URL(sites[0].url).hostname.replace(/^www\./, "");
+    appId = "uk.smti.app.a" + (await sha256Hex(firstHost + "|" + appName)).slice(0, 12);
+    config = { sites, extraDomains, orientation, pinSalt, pinHash };
+  }
 
   await ensureSchema(env);
   const now = Date.now();
@@ -225,6 +233,14 @@ async function createBuild(request, env) {
   return json({ ok: true, id });
 }
 
+function jobType(job) {
+  try {
+    return JSON.parse(job.config).type === "lock" ? "lock" : "site";
+  } catch {
+    return "site";
+  }
+}
+
 async function setStatus(env, id, status, error = "") {
   await env.DB.prepare(`UPDATE apk_jobs SET status = ?, error = ?, updated_at = ? WHERE id = ?`)
     .bind(status, error, Date.now(), id).run();
@@ -235,7 +251,7 @@ async function setStatus(env, id, status, error = "") {
 async function jobStatus(env, id, origin) {
   await ensureSchema(env);
   const job = await env.DB.prepare(
-    `SELECT id, status, error, app_name, version_code, apk_size, created_at, updated_at FROM apk_jobs WHERE id = ?`
+    `SELECT id, status, error, app_name, app_id, version_code, config, apk_size, created_at, updated_at FROM apk_jobs WHERE id = ?`
   ).bind(id).first();
   if (!job) return fail("הבקשה לא נמצאה", 404);
 
@@ -254,6 +270,9 @@ async function jobStatus(env, id, origin) {
     size: job.apk_size,
     elapsed: Math.round((Date.now() - job.created_at) / 1000),
     download: job.status === "done" ? `${origin}${BASE}/download/${job.id}` : null,
+    type: jobType(job),
+    // For the lock app: the one-time computer command that switches on strong mode.
+    adb: jobType(job) === "lock" ? `adb shell dpm set-device-owner ${job.app_id}/uk.smti.lock.AdminReceiver` : null,
   });
 }
 
@@ -287,7 +306,8 @@ async function builderConfig(env, id) {
     appId: job.app_id,
     versionCode: job.version_code,
     versionName: "1." + job.version_code,
-    firstHost: new URL(config.sites[0].url).hostname,
+    type: config.type === "lock" ? "lock" : "site",
+    firstHost: config.sites && config.sites.length ? new URL(config.sites[0].url).hostname : "",
     icon: job.icon || "",
     config,
   });

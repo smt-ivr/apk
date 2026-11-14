@@ -26,13 +26,12 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: android
     steps:
       - uses: actions/checkout@v4
         with:
-          sparse-checkout: android
+          sparse-checkout: |
+            android
+            lock
 
       - name: Check job id and secret
         env:
@@ -53,8 +52,13 @@ jobs:
           SECRET: ${{ secrets.APK_BUILD_SECRET }}
         run: |
           curl -fsS -H "Authorization: Bearer $SECRET" "$BUILDER_URL/builder/jobs/$JOB_ID" -o job.json
+          # "site" apps are built from android/, the app locker from lock/
+          if [ "$(jq -r '.type // "site"' job.json)" = "lock" ]; then PROJ=lock; else PROJ=android; fi
+          mv job.json "$PROJ/job.json"
+          cd "$PROJ"
           jq '.config' job.json > app/src/main/assets/config.json
           {
+            echo "PROJ=$PROJ"
             echo "APP_ID=$(jq -r .appId job.json)"
             echo "VERSION_CODE=$(jq -r .versionCode job.json)"
             echo "VERSION_NAME=$(jq -r .versionName job.json)"
@@ -66,11 +70,12 @@ jobs:
       - name: App icon
         run: |
           set -e
+          cd "$PROJ"
           ICON=""
           if [ -n "$(jq -r '.icon // ""' job.json)" ]; then
             jq -r .icon job.json | base64 -d > icon_src.png
             ICON=icon_src.png
-          else
+          elif [ -n "$FIRST_HOST" ]; then
             # Try the first site's own icon; skip it if it is tiny or not an image.
             for u in "https://www.google.com/s2/favicons?sz=256&domain=$FIRST_HOST" "https://$FIRST_HOST/apple-touch-icon.png"; do
               if curl -fsSL --max-time 15 "$u" -o fav.bin 2>/dev/null; then
@@ -134,6 +139,7 @@ jobs:
 
       - name: Build
         run: |
+          cd "$PROJ"
           chmod +x gradlew
           ./gradlew --no-daemon assembleRelease \
             -PappId="$APP_ID" -PappName="$(cat app_name.txt)" \
@@ -145,7 +151,7 @@ jobs:
           SECRET: ${{ secrets.APK_BUILD_SECRET }}
         run: |
           curl -fsS -X PUT -H "Authorization: Bearer $SECRET" -H "content-type: application/vnd.android.package-archive" \
-            --data-binary @app/build/outputs/apk/release/app-release.apk "$BUILDER_URL/builder/jobs/$JOB_ID/apk"
+            --data-binary @"$PROJ/app/build/outputs/apk/release/app-release.apk" "$BUILDER_URL/builder/jobs/$JOB_ID/apk"
 
       - name: Report failure
         if: failure()

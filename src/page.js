@@ -58,6 +58,15 @@ textarea{min-height:84px;resize:vertical}
 .icon-prev{width:72px;height:72px;border-radius:18px;border:1px dashed var(--line);background:var(--field);
   display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12px;overflow:hidden;flex:none}
 .icon-prev img{width:100%;height:100%;object-fit:cover}
+.tabs{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px}
+.tab{font:inherit;text-align:right;border:2px solid var(--line);background:var(--card);color:var(--text);border-radius:14px;padding:12px 14px;cursor:pointer}
+.tab b{display:block;font-size:16px}
+.tab span{display:block;font-size:13px;color:var(--muted);margin-top:2px}
+.tab[aria-selected=true]{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 18%,transparent)}
+body[data-type=site] .only-lock,body[data-type=lock] .only-site{display:none!important}
+.steps-list{text-align:right;margin:8px 0 0;padding-inline-start:20px}
+.steps-list li{margin:6px 0}
+code.cmd{display:block;direction:ltr;text-align:left;background:var(--field);border:1px solid var(--line);border-radius:10px;padding:10px;font-size:12px;word-break:break-all;margin:8px 0}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 @media (max-width:520px){.grid2{grid-template-columns:1fr}}
 .err{color:var(--danger);font-weight:500;min-height:1.5em;margin:10px 0 0;text-align:center}
@@ -76,12 +85,17 @@ details summary{cursor:pointer;color:var(--accent);font-weight:500}
 footer{text-align:center;color:var(--muted);font-size:13px;margin-top:20px}
 </style>
 </head>
-<body>
+<body data-type="site">
 <div class="wrap">
   <header>
     <h1>יוצר אפליקציות</h1>
-    <p>אפליקציית אנדרואיד שמציגה רק את האתרים שתבחר, ושום דבר אחר.</p>
+    <p>אפליקציות אנדרואיד מותאמות אישית, מוכנות להתקנה.</p>
   </header>
+
+  <div class="tabs" role="tablist">
+    <button type="button" class="tab" role="tab" data-type="site" aria-selected="true"><b>אפליקציה מאתר</b><span>מציגה רק את האתרים שתבחר</span></button>
+    <button type="button" class="tab" role="tab" data-type="lock" aria-selected="false"><b>נעילת אפליקציות</b><span>נעילה וחסימה של אפליקציות בטלפון</span></button>
+  </div>
 
   <form id="form" novalidate>
     <div class="card">
@@ -96,19 +110,45 @@ footer{text-align:center;color:var(--muted);font-size:13px;margin-top:20px}
           <input type="file" id="iconFile" accept="image/*" hidden>
           <button type="button" class="btn" id="iconBtn">בחירת תמונה</button>
           <button type="button" class="btn" id="iconClear" hidden>הסרה</button>
-          <p class="small" style="margin:6px 0 0">בלי תמונה ננסה לקחת את הסמל של האתר הראשון.</p>
+          <p class="small only-site" style="margin:6px 0 0">בלי תמונה ננסה לקחת את הסמל של האתר הראשון.</p>
+          <p class="small only-lock" style="margin:6px 0 0">בלי תמונה יופיע סמל של מנעול.</p>
         </div>
       </div>
     </div>
 
-    <div class="card">
+    <div class="card only-lock">
+      <h2>קוד הנעילה</h2>
+      <p class="hint">הקוד נדרש כדי לפתוח אפליקציות נעולות, לשנות הגדרות ולהסיר את האפליקציה. <b>שמרו אותו במקום בטוח</b>: בלי הקוד אי אפשר להסיר את ההגנה.</p>
+      <div class="grid2">
+        <div>
+          <label class="f" for="lockPin">קוד</label>
+          <input type="password" id="lockPin" class="ltr" inputmode="numeric" maxlength="8" placeholder="4–8 ספרות" autocomplete="new-password">
+        </div>
+        <div>
+          <label class="f" for="lockPin2">שוב את הקוד</label>
+          <input type="password" id="lockPin2" class="ltr" inputmode="numeric" maxlength="8" autocomplete="new-password">
+        </div>
+      </div>
+    </div>
+
+    <div class="card only-lock">
+      <h2>מה האפליקציה עושה</h2>
+      <ul class="steps-list small">
+        <li>בטלפון בוחרים לכל אפליקציה: <b>פתוחה</b>, <b>נפתחת בקוד</b>, או <b>חסומה לגמרי</b>.</li>
+        <li>עם הרשאת ניהול אי אפשר להסיר אותה בלי הקוד, וגם מסכי ההגדרות שמבטלים אותה מוגנים בקוד.</li>
+        <li>אפשרות להגנה חזקה (חיבור למחשב פעם אחת): אי אפשר להסיר אותה בכלל, והגבלות נוספות כמו חסימת מצב בטוח והתקנת אפליקציות.</li>
+        <li>האפליקציה לא אוספת ולא שולחת שום מידע.</li>
+      </ul>
+    </div>
+
+    <div class="card only-site">
       <h2>אתרים</h2>
       <p class="hint">אם יש יותר מאתר אחד, באפליקציה יופיע מסך בית עם כפתור לכל אתר. תתי-האתרים של כל אתר מותרים גם הם.</p>
       <div id="sites"></div>
       <button type="button" class="btn" id="addSite">+ הוספת אתר</button>
     </div>
 
-    <div class="card">
+    <div class="card only-site">
       <h2>הגדרות נוספות</h2>
 
       <label class="f" for="extra">כתובות נוספות מורשות <span class="small">(לא חובה)</span></label>
@@ -153,6 +193,21 @@ footer{text-align:center;color:var(--muted);font-size:13px;margin-top:20px}
       <h2 id="doneTitle">האפליקציה מוכנה</h2>
       <p class="small" id="doneInfo"></p>
       <p><a class="btn primary" id="dl" href="#">הורדת קובץ ה-APK</a></p>
+      <div id="lockSteps" hidden style="text-align:right">
+        <h3 style="margin:16px 0 4px">אחרי ההתקנה</h3>
+        <ol class="steps-list small">
+          <li>פותחים את האפליקציה ומזינים את הקוד.</li>
+          <li><b>שירות הנעילה:</b> לוחצים "פתיחת הגדרות נגישות" ומפעילים את האפליקציה. באנדרואיד 13 ומעלה, אם האפשרות אפורה: הגדרות ← אפליקציות ← האפליקציה ← תפריט ⋮ ← "התרת הגדרות מוגבלות".</li>
+          <li><b>הרשאת ניהול:</b> לוחצים "הפעלת הרשאת ניהול" ומאשרים.</li>
+          <li>בוחרים אילו אפליקציות לנעול או לחסום.</li>
+        </ol>
+        <details style="margin-top:10px">
+          <summary>הגנה חזקה (לא חובה, דורש מחשב)</summary>
+          <p class="small">עובד רק בטלפון שאין בו חשבון Google מחובר (בדרך כלל אחרי איפוס). בטלפון מפעילים "ניפוי באגים ב-USB" באפשרויות המפתחים, מחברים למחשב שמותקן בו ADB, ומריצים:</p>
+          <code class="cmd" id="adbCmd"></code>
+          <p class="small">אחרי זה אי אפשר להסיר את האפליקציה בלי הקוד, ואפליקציות חסומות מושבתות במערכת. אחרי ההפעלה אפשר להוסיף שוב חשבון Google.</p>
+        </details>
+      </div>
       <details>
         <summary>איך מתקינים?</summary>
         <ol style="text-align:right" class="small">
@@ -182,6 +237,17 @@ footer{text-align:center;color:var(--muted);font-size:13px;margin-top:20px}
     get(k) { try { return localStorage.getItem(k); } catch { return null; } },
     set(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} },
   };
+
+  // ---------- app type ----------
+  let type = "site";
+  function setType(t) {
+    type = t === "lock" ? "lock" : "site";
+    document.body.dataset.type = type;
+    document.querySelectorAll(".tab").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.type === type)));
+    $("appName").placeholder = type === "lock" ? "למשל: נעילה" : "למשל: שיעורי תורה";
+    showErr("");
+  }
+  document.querySelectorAll(".tab").forEach((b) => (b.onclick = () => setType(b.dataset.type)));
 
   // ---------- sites list ----------
   function addSite(title = "", url = "", restrict = false) {
@@ -253,6 +319,13 @@ footer{text-align:center;color:var(--muted);font-size:13px;margin-top:20px}
     const appName = $("appName").value.trim();
     if (!appName) { $("appName").focus(); return showErr("נא להזין שם לאפליקציה"); }
 
+    if (type === "lock") {
+      const p1 = $("lockPin").value.trim();
+      if (!/^\\d{4,8}$/.test(p1)) { $("lockPin").focus(); return showErr("הקוד צריך להיות 4 עד 8 ספרות"); }
+      if (p1 !== $("lockPin2").value.trim()) { $("lockPin2").focus(); return showErr("הקודים לא תואמים"); }
+      return send({ type: "lock", appName, pin: p1, icon: iconData });
+    }
+
     const sites = [];
     for (const box of $("sites").children) {
       const url = box.querySelector(".url").value.trim();
@@ -268,12 +341,16 @@ footer{text-align:center;color:var(--muted);font-size:13px;margin-top:20px}
     const pin = $("pin").value.trim();
     if (pin && !/^\\d{4,8}$/.test(pin)) { $("pin").focus(); return showErr("הקוד צריך להיות 4 עד 8 ספרות"); }
 
+    return send({ type: "site", appName, sites, extraDomains, pin, orientation: $("orientation").value, icon: iconData });
+  };
+
+  async function send(payload) {
     $("submit").disabled = true;
     try {
       const r = await fetch(API + "/build", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ appName, sites, extraDomains, pin, orientation: $("orientation").value, icon: iconData }),
+        body: JSON.stringify(payload),
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok || !data.ok) throw new Error(data.error || "השליחה נכשלה");
@@ -317,6 +394,8 @@ footer{text-align:center;color:var(--muted);font-size:13px;margin-top:20px}
           $("doneTitle").textContent = "האפליקציה \\u201C" + d.appName + "\\u201D מוכנה";
           $("doneInfo").textContent = "גרסה " + d.version + " · " + Math.max(1, Math.round(d.size / 1024)) + " KB";
           $("dl").href = d.download;
+          $("lockSteps").hidden = d.type !== "lock";
+          if (d.adb) $("adbCmd").textContent = d.adb;
           return;
         }
         if (d.status === "error") {

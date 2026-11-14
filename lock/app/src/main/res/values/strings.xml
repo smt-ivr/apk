@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="service_description">מזהה איזו אפליקציה פתוחה, כדי לנעול את האפליקציות שנבחרו ולמנוע הסרה של ההגנה בלי הקוד. השירות לא אוסף ולא שולח שום מידע.</string>
+</resources>
