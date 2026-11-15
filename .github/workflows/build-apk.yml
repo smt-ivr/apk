@@ -69,10 +69,27 @@ jobs:
           jq -r .appName job.json > app_name.txt
           [[ "$(jq -r .appId job.json)" =~ ^[a-z][a-z0-9_.]+$ ]] || { echo "bad app id"; exit 1; }
 
+      - name: Image tools
+        run: |
+          # Newer runner images ship without ImageMagick; install it (and a Hebrew font for letter icons).
+          if ! command -v convert >/dev/null && ! command -v magick >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq --no-install-recommends imagemagick librsvg2-bin fonts-dejavu-core >/dev/null
+          fi
+          # ImageMagick 7 only has "magick": add the old command names the scripts use.
+          if ! command -v convert >/dev/null && command -v magick >/dev/null; then
+            printf '#!/bin/sh\nexec magick "$@"\n' | sudo tee /usr/local/bin/convert >/dev/null
+            printf '#!/bin/sh\nexec magick identify "$@"\n' | sudo tee /usr/local/bin/identify >/dev/null
+            sudo chmod +x /usr/local/bin/convert /usr/local/bin/identify
+          fi
+          convert -version | head -1
+
       - name: App icon
         run: |
           set -e
           cd "$PROJ"
+          # If anything here fails, put the default icon back and carry on: an icon is never worth a failed build.
+          trap 'if [ $? -ne 0 ]; then echo "::warning::Icon failed - using the default icon"; git checkout -- app/src/main/res; git clean -fdq app/src/main/res; exit 0; fi' EXIT
           RES=app/src/main/res
           ICON=""; MODE=""
           if [ -n "$(jq -r '.icon // ""' job.json)" ]; then
