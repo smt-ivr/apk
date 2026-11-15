@@ -7,7 +7,8 @@ const MAX_EXTRA = 30;
 const MAX_ICON_B64 = 400_000;
 const PER_IP_PER_HOUR = 6;
 const PER_DAY = 60;
-const KEEP_DAYS = 7;
+const KEEP_DAYS = 7; // APK files
+const KEEP_SETTINGS_DAYS = 400; // build settings, so an app can be updated later
 const BUILD_TIMEOUT_MS = 20 * 60 * 1000;
 
 const SCHEMA = [
@@ -154,13 +155,31 @@ async function createBuild(request, env) {
     extraDomains.push(raw.replace(/^https?:\/\//i, ""));
   }
 
+  // Updating an app built before: keep its package (so it installs as an update) and, if no new PIN, its PIN.
+  await ensureSchema(env);
+  let prevJob = null;
+  if (body.updateOf) {
+    const uid = String(body.updateOf);
+    if (!/^[a-f0-9]{24}$/.test(uid)) return fail("קישור העדכון לא תקין");
+    prevJob = await env.DB.prepare(`SELECT app_id, config FROM apk_jobs WHERE id = ?`).bind(uid).first();
+    if (!prevJob) return fail("האפליקציה הקודמת לא נמצאה");
+    if (jobType(prevJob) !== type) return fail("אפשר לעדכן רק אפליקציה מאותו סוג");
+  }
+  const prevConfig = prevJob ? JSON.parse(prevJob.config) : {};
+
   const pin = String(body.pin ?? "").trim();
-  if (type === "lock" && !pin) return fail("נא לבחור קוד");
+  if (type === "lock" && !pin && !prevConfig.pinHash) return fail("נא לבחור קוד");
   if (pin && !/^\d{4,8}$/.test(pin)) return fail("הקוד צריך להיות 4 עד 8 ספרות");
-  const pinSalt = pin ? randomHex(16) : "";
-  const pinHash = pin ? await sha256Hex(pinSalt + pin) : "";
+  let pinSalt = pin ? randomHex(16) : "";
+  let pinHash = pin ? await sha256Hex(pinSalt + pin) : "";
+  if (!pin && prevJob && body.keepPin !== false) {
+    pinSalt = prevConfig.pinSalt || "";
+    pinHash = prevConfig.pinHash || "";
+  }
 
   const orientation = ["auto", "portrait", "landscape"].includes(body.orientation) ? body.orientation : "auto";
+  const toolbar = body.toolbar !== false;
+  const desktop = body.desktop === true;
 
   let icon = "";
   if (body.icon) {
@@ -178,18 +197,20 @@ async function createBuild(request, env) {
   } else {
     const firstHost = new URL(sites[0].url).hostname.replace(/^www\./, "");
     appId = "uk.smti.app.a" + (await sha256Hex(firstHost + "|" + appName)).slice(0, 12);
-    config = { sites, extraDomains, orientation, pinSalt, pinHash };
+    config = { sites, extraDomains, orientation, toolbar, desktop, pinSalt, pinHash };
   }
+  if (prevJob) appId = prevJob.app_id;
 
-  await ensureSchema(env);
   const now = Date.now();
   const ip = request.headers.get("cf-connecting-ip") || "";
 
   // Housekeeping and limits.
   const old = now - KEEP_DAYS * 86400_000;
+  const veryOld = now - KEEP_SETTINGS_DAYS * 86400_000;
   await env.DB.batch([
-    env.DB.prepare(`DELETE FROM apk_chunks WHERE job_id IN (SELECT id FROM apk_jobs WHERE created_at < ?)`).bind(old),
-    env.DB.prepare(`DELETE FROM apk_jobs WHERE created_at < ?`).bind(old),
+    env.DB.prepare(`DELETE FROM apk_chunks WHERE job_id IN (SELECT id FROM apk_jobs WHERE created_at < ? AND chunks > 0)`).bind(old),
+    env.DB.prepare(`UPDATE apk_jobs SET chunks = 0, icon = '' WHERE created_at < ? AND chunks > 0`).bind(old),
+    env.DB.prepare(`DELETE FROM apk_jobs WHERE created_at < ?`).bind(veryOld),
   ]);
   const counts = await env.DB.prepare(
     `SELECT
@@ -200,8 +221,10 @@ async function createBuild(request, env) {
   if ((counts?.mine || 0) >= PER_IP_PER_HOUR) return fail("יותר מדי בקשות. נסה שוב בעוד שעה.", 429);
   if ((counts?.day || 0) >= PER_DAY) return fail("הגענו למכסה היומית. נסה שוב מחר.", 429);
 
-  const prev = await env.DB.prepare(`SELECT MAX(version_code) AS v FROM apk_jobs WHERE app_id = ? AND status = 'done'`).bind(appId).first();
-  const versionCode = (prev?.v || 0) + 1;
+  // Version code: minutes since 2025, so it always grows and every new build installs over the old one.
+  const versionCode = Math.floor((now - Date.UTC(2025, 0, 1)) / 60000);
+  const builds = await env.DB.prepare(`SELECT COUNT(*) AS n FROM apk_jobs WHERE app_id = ? AND status = 'done'`).bind(appId).first();
+  config.versionName = "1." + ((builds?.n || 0) + 1);
 
   const id = randomHex(12);
   await env.DB.prepare(
@@ -231,6 +254,14 @@ async function createBuild(request, env) {
   }
 
   return json({ ok: true, id });
+}
+
+function versionNameOf(job) {
+  try {
+    return JSON.parse(job.config).versionName || "1.0";
+  } catch {
+    return "1.0";
+  }
 }
 
 function jobType(job) {
@@ -266,10 +297,11 @@ async function jobStatus(env, id, origin) {
     status: job.status,
     error: job.error,
     appName: job.app_name,
-    version: job.version_code,
+    version: versionNameOf(job),
+    appId: job.app_id,
     size: job.apk_size,
     elapsed: Math.round((Date.now() - job.created_at) / 1000),
-    download: job.status === "done" ? `${origin}${BASE}/download/${job.id}` : null,
+    download: job.status === "done" && Date.now() - job.created_at < KEEP_DAYS * 86400_000 ? `${origin}${BASE}/download/${job.id}` : null,
     type: jobType(job),
     // For the lock app: the one-time computer command that switches on strong mode.
     adb: jobType(job) === "lock" ? `adb shell dpm set-device-owner ${job.app_id}/uk.smti.lock.AdminReceiver` : null,
@@ -279,7 +311,11 @@ async function jobStatus(env, id, origin) {
 async function download(env, id) {
   await ensureSchema(env);
   const job = await env.DB.prepare(`SELECT app_name, status, chunks FROM apk_jobs WHERE id = ?`).bind(id).first();
-  if (!job || job.status !== "done") return new Response("הקובץ לא נמצא או שפג תוקפו", { status: 404 });
+  if (!job || job.status !== "done" || !job.chunks) {
+    return new Response("הקובץ לא נמצא או שפג תוקפו. אפשר לבנות אותו מחדש באתר (עדכון לאפליקציה קיימת).", {
+      status: 404, headers: { "content-type": "text/plain; charset=utf-8" },
+    });
+  }
   const { results } = await env.DB.prepare(`SELECT data FROM apk_chunks WHERE job_id = ? ORDER BY idx`).bind(id).all();
   const bytes = base64ToBytes(results.map((r) => r.data).join(""));
   const ascii = job.app_name.replace(/[^A-Za-z0-9._-]+/g, "_").replace(/^_+|_+$/g, "") || "app";
@@ -290,6 +326,26 @@ async function download(env, id) {
       "content-length": String(bytes.length),
       "cache-control": "private, max-age=3600",
     },
+  });
+}
+
+/** Settings of a previous build, to load them into the form and build an update. */
+async function jobSettings(env, id) {
+  await ensureSchema(env);
+  const job = await env.DB.prepare(`SELECT app_name, app_id, config, status FROM apk_jobs WHERE id = ?`).bind(id).first();
+  if (!job) return fail("האפליקציה לא נמצאה. ייתכן שהקישור ישן מדי.", 404);
+  const c = JSON.parse(job.config);
+  return json({
+    ok: true,
+    type: c.type === "lock" ? "lock" : "site",
+    appName: job.app_name,
+    appId: job.app_id,
+    sites: c.sites || [],
+    extraDomains: c.extraDomains || [],
+    orientation: c.orientation || "auto",
+    toolbar: c.toolbar !== false,
+    desktop: c.desktop === true,
+    hasPin: !!c.pinHash,
   });
 }
 
@@ -305,9 +361,10 @@ async function builderConfig(env, id) {
     appName: job.app_name,
     appId: job.app_id,
     versionCode: job.version_code,
-    versionName: "1." + job.version_code,
+    versionName: versionNameOf(job),
     type: config.type === "lock" ? "lock" : "site",
     firstHost: config.sites && config.sites.length ? new URL(config.sites[0].url).hostname : "",
+    firstUrl: config.sites && config.sites.length ? config.sites[0].url : "",
     icon: job.icon || "",
     config,
   });
@@ -381,6 +438,9 @@ export default {
       let m;
       if ((m = /^\/api\/jobs\/([a-f0-9]{24})$/.exec(path)) && method === "GET") {
         return await jobStatus(env, m[1], url.origin);
+      }
+      if ((m = /^\/api\/jobs\/([a-f0-9]{24})\/settings$/.exec(path)) && method === "GET") {
+        return await jobSettings(env, m[1]);
       }
       if ((m = /^\/download\/([a-f0-9]{24})$/.exec(path)) && method === "GET") {
         return await download(env, m[1]);

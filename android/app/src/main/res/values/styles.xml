@@ -1,6 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="AppTheme" parent="android:Theme.Material.Light.DarkActionBar">
+    <style name="AppTheme" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:colorPrimary">@color/primary</item>
+        <item name="android:colorPrimaryDark">@color/bar</item>
+        <item name="android:colorAccent">@color/primary</item>
+        <item name="android:statusBarColor">@color/bar</item>
+        <item name="android:windowBackground">@color/page</item>
+    </style>
+    <!-- Settings keep a title bar -->
+    <style name="SettingsTheme" parent="android:Theme.Material.Light.DarkActionBar">
         <item name="android:colorPrimary">@color/primary</item>
         <item name="android:colorPrimaryDark">@color/primary_dark</item>
         <item name="android:colorAccent">@color/primary</item>

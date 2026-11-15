@@ -32,6 +32,7 @@ jobs:
           sparse-checkout: |
             android
             lock
+            scripts
 
       - name: Check job id and secret
         env:
@@ -63,6 +64,7 @@ jobs:
             echo "VERSION_CODE=$(jq -r .versionCode job.json)"
             echo "VERSION_NAME=$(jq -r .versionName job.json)"
             echo "FIRST_HOST=$(jq -r .firstHost job.json)"
+            echo "FIRST_URL=$(jq -r '.firstUrl // ""' job.json)"
           } >> "$GITHUB_ENV"
           jq -r .appName job.json > app_name.txt
           [[ "$(jq -r .appId job.json)" =~ ^[a-z][a-z0-9_.]+$ ]] || { echo "bad app id"; exit 1; }
@@ -71,31 +73,47 @@ jobs:
         run: |
           set -e
           cd "$PROJ"
-          ICON=""
+          RES=app/src/main/res
+          ICON=""; MODE=""
           if [ -n "$(jq -r '.icon // ""' job.json)" ]; then
+            # Uploaded on the site (already a square): fills the whole icon.
             jq -r .icon job.json | base64 -d > icon_src.png
-            ICON=icon_src.png
-          elif [ -n "$FIRST_HOST" ]; then
-            # Try the first site's own icon; skip it if it is tiny or not an image.
-            for u in "https://www.google.com/s2/favicons?sz=256&domain=$FIRST_HOST" "https://$FIRST_HOST/apple-touch-icon.png"; do
-              if curl -fsSL --max-time 15 "$u" -o fav.bin 2>/dev/null; then
-                W=$(identify -format '%w' 'fav.bin[0]' 2>/dev/null || echo 0)
-                if [ "${W:-0}" -ge 96 ]; then convert 'fav.bin[0]' fav.png && ICON=fav.png && break; fi
-              fi
-            done
-          fi
-          if [ -n "$ICON" ]; then
-            echo "Using icon $ICON"
-            rm -f app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
-            for d in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
-              mkdir -p "app/src/main/res/mipmap-${d%%:*}"
-              # square, transparent padding if needed
-              convert "$ICON" -background none -gravity center -resize "${d##*:}x${d##*:}" \
-                -extent "${d##*:}x${d##*:}" "PNG32:app/src/main/res/mipmap-${d%%:*}/ic_launcher.png"
-            done
+            ICON=icon_src.png; MODE=full; BG="#FFFFFF"
+          elif [ -n "$FIRST_URL" ] && python3 -I "$GITHUB_WORKSPACE/scripts/find_icon.py" "$FIRST_URL" icon_site.png; then
+            # The site's own icon: centred on white.
+            ICON=icon_site.png; MODE=padded; BG="#FFFFFF"
+          elif [ "$PROJ" = lock ]; then
+            echo "Icon: default lock"; exit 0
           else
-            echo "Using the default icon"
+            # No icon anywhere: the first letter of the app name on a colour.
+            LETTER=$(jq -r '.appName' job.json | python3 -c "import sys; t=sys.stdin.read().strip(); print(t[:1] or 'A')")
+            COLORS=("#1F5FAD" "#2E7D32" "#C2410C" "#7C3AED" "#0F766E" "#B91C1C" "#334155")
+            BG=${COLORS[$(( $(jq -r '.appName' job.json | cksum | cut -d' ' -f1) % ${#COLORS[@]} ))]}
+            FONT=$(fc-match -f '%{file}' 'sans-serif:bold:lang=he' 2>/dev/null || true)
+            convert -size 432x432 xc:none ${FONT:+-font "$FONT"} -fill white -pointsize 230 -gravity center \
+              -annotate +0+0 "$LETTER" PNG32:icon_letter.png
+            ICON=icon_letter.png; MODE=letter
           fi
+          echo "Icon: $MODE"
+          # Adaptive icon (Android 8+): background colour + foreground image inside the safe zone.
+          rm -f $RES/drawable/ic_launcher_fg.xml $RES/mipmap-xxxhdpi/ic_launcher.png
+          mkdir -p $RES/drawable-nodpi $RES/mipmap-anydpi-v26 $RES/values
+          case $MODE in
+            full)   convert "$ICON" -resize 432x432 PNG32:$RES/drawable-nodpi/ic_launcher_fg.png ;;
+            padded) convert "$ICON" -resize 264x264 -background none -gravity center -extent 432x432 PNG32:$RES/drawable-nodpi/ic_launcher_fg.png ;;
+            letter) cp "$ICON" $RES/drawable-nodpi/ic_launcher_fg.png ;;
+          esac
+          printf '<?xml version="1.0" encoding="utf-8"?>\n<resources><color name="custom_icon_bg">%s</color></resources>\n' "$BG" > $RES/values/custom_icon.xml
+          printf '<?xml version="1.0" encoding="utf-8"?>\n<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android"><background android:drawable="@color/custom_icon_bg"/><foreground android:drawable="@drawable/ic_launcher_fg"/></adaptive-icon>\n' > $RES/mipmap-anydpi-v26/ic_launcher.xml
+          # Older Android: a rounded square.
+          for d in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
+            S=${d##*:}; mkdir -p "$RES/mipmap-${d%%:*}"
+            case $MODE in full) INNER=$S ;; padded) INNER=$((S*72/100)) ;; letter) INNER=$S ;; esac
+            convert -size ${S}x${S} xc:none -fill "$BG" -draw "roundrectangle 0,0 $((S-1)),$((S-1)) $((S/5)),$((S/5))" \
+              \( "$ICON" -resize ${INNER}x${INNER} \) -gravity center -composite \
+              \( -size ${S}x${S} xc:none -fill white -draw "roundrectangle 0,0 $((S-1)),$((S-1)) $((S/5)),$((S/5))" \) \
+              -compose DstIn -composite PNG32:"$RES/mipmap-${d%%:*}/ic_launcher.png"
+          done
 
       - name: Tell the site we are building
         env:
