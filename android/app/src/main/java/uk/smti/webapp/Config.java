@@ -58,6 +58,10 @@ public final class Config {
     public final List<Site> sites = new ArrayList<>();
     public final List<String> extraDomains = new ArrayList<>();
     public String orientation = "auto";
+    /** Show the browser bar (back, forward, home, menu) by default. */
+    public boolean toolbar = true;
+    /** Open sites in desktop mode by default. */
+    public boolean desktop = false;
     private String pinSalt = "";
     private String pinHash = "";
     private final List<Rule> rules = new ArrayList<>();
@@ -83,6 +87,8 @@ public final class Config {
         sites.clear();
         extraDomains.clear();
         orientation = defaults.optString("orientation", "auto");
+        toolbar = defaults.optBoolean("toolbar", true);
+        desktop = defaults.optBoolean("desktop", false);
 
         JSONArray s = parseArray(prefs.getString(K_SITES, null));
         if (s == null) s = defaults.optJSONArray("sites");

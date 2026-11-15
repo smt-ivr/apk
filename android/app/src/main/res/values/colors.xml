@@ -3,4 +3,9 @@
     <color name="primary">#1F5FAD</color>
     <color name="primary_dark">#174A87</color>
     <color name="icon_bg">#1F5FAD</color>
+    <color name="bar">#FFFFFF</color>
+    <color name="bar_line">#E3E7EF</color>
+    <color name="bar_text">#1B2430</color>
+    <color name="bar_muted">#6B7686</color>
+    <color name="page">#F4F6FA</color>
 </resources>

@@ -5,24 +5,41 @@ import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.DownloadManager;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.Color;
+import android.graphics.PorterDuff;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.RippleDrawable;
+import android.content.res.ColorStateList;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.Message;
 import android.text.InputType;
+import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.CookieManager;
+import android.webkit.GeolocationPermissions;
+import android.webkit.JavascriptInterface;
+import android.webkit.PermissionRequest;
 import android.webkit.URLUtil;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
@@ -34,35 +51,63 @@ import android.webkit.WebViewClient;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.ImageButton;
 import android.widget.LinearLayout;
+import android.widget.PopupMenu;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
+
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.List;
 
 public class MainActivity extends Activity {
 
     private static final int REQ_FILE = 1;
     private static final int REQ_STORAGE = 2;
     private static final int REQ_SETTINGS = 3;
+    private static final int REQ_MEDIA = 4;
+    private static final int REQ_LOCATION = 5;
+    private static final int REQ_NOTIFY = 6;
 
-    private static final int MENU_HOME = 1;
-    private static final int MENU_RELOAD = 2;
-    private static final int MENU_SETTINGS = 3;
+    private static final int M_COPY = 1, M_SHARE = 2, M_DESKTOP = 3, M_HIDE_BAR = 4, M_FIND = 5,
+            M_RELOAD = 6, M_HOME = 7, M_SETTINGS = 8, M_BROWSER = 9;
+
+    private static final String DESKTOP_UA =
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+    private static final String EXTRA_TAG = "notif_tag";
 
     private Config config;
-    private FrameLayout root;
-    private WebView web;
+    private SharedPreferences prefs;
+    private String bridgeJs = "";
+    private String mobileUa;
+
+    private LinearLayout root;
+    private LinearLayout bar;
+    private ImageButton btnBack, btnForward;
+    private TextView barTitle, barHost;
     private ProgressBar progress;
+    private FrameLayout content;
+    private WebView web;
     private ScrollView home;
     private LinearLayout errorView;
     private TextView errorText;
+    private ImageButton showBarButton;
+    private LinearLayout findBar;
 
     private View fullscreenView;
     private WebChromeClient.CustomViewCallback fullscreenCallback;
     private ValueCallback<Uri[]> fileCallback;
     private DownloadManager.Request pendingDownload;
     private String pendingDownloadName;
+    private PermissionRequest pendingMedia;
+    private String pendingGeoOrigin;
+    private GeolocationPermissions.Callback pendingGeo;
+    private int pendingNotifyId;
+    private boolean clearHistoryOnNextPage;
 
     // ------------------------------------------------------------------ lifecycle
 
@@ -70,6 +115,8 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         config = new Config(this);
+        prefs = getSharedPreferences("browser", MODE_PRIVATE);
+        bridgeJs = readAsset("bridge.js");
         applyOrientation();
         buildUi();
         if (savedInstanceState != null && web.restoreState(savedInstanceState) != null) {
@@ -77,6 +124,13 @@ public class MainActivity extends Activity {
         } else {
             showStart();
         }
+        handleNotificationTap(getIntent());
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        handleNotificationTap(intent);
     }
 
     @Override
@@ -107,23 +161,94 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** One site: open it. Several: show the home screen with a button per site. */
     private void showStart() {
-        if (config.sites.size() == 1) {
-            open(config.sites.get(0).url);
-        } else {
-            showHome();
-        }
+        if (config.sites.size() == 1) open(config.sites.get(0).url);
+        else showHome();
     }
 
     // ------------------------------------------------------------------ UI
 
-    @SuppressLint("SetJavaScriptEnabled")
+    @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
     private void buildUi() {
-        root = new FrameLayout(this);
+        root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(color(R.color.page));
+
+        // ---- browser bar ----
+        bar = new LinearLayout(this);
+        bar.setGravity(Gravity.CENTER_VERTICAL);
+        bar.setBackgroundColor(color(R.color.bar));
+        bar.setPadding(dp(4), 0, dp(4), 0);
+        bar.setLayoutDirection(View.LAYOUT_DIRECTION_LTR); // browser order: back, forward, home …
+        btnBack = barButton(R.drawable.ic_back, "אחורה", v -> goBack());
+        btnForward = barButton(R.drawable.ic_forward, "קדימה", v -> {
+            if (web.canGoForward()) web.goForward();
+        });
+        ImageButton btnHome = barButton(R.drawable.ic_home, "דף הבית", v -> goHome());
+        bar.addView(btnBack);
+        bar.addView(btnForward);
+        bar.addView(btnHome);
+
+        LinearLayout titles = new LinearLayout(this);
+        titles.setOrientation(LinearLayout.VERTICAL);
+        titles.setPadding(dp(8), dp(4), dp(8), dp(4));
+        titles.setBackground(rounded(color(R.color.page), dp(18)));
+        titles.setClickable(true);
+        titles.setOnClickListener(v -> copyText(web.getUrl(), "הקישור הועתק"));
+        titles.setOnLongClickListener(v -> {
+            showPageMenu(v);
+            return true;
+        });
+        barTitle = new TextView(this);
+        barTitle.setTextColor(color(R.color.bar_text));
+        barTitle.setTextSize(14);
+        barTitle.setTypeface(Typeface.DEFAULT_BOLD);
+        barTitle.setSingleLine(true);
+        barTitle.setEllipsize(TextUtils.TruncateAt.END);
+        barTitle.setTextDirection(View.TEXT_DIRECTION_FIRST_STRONG);
+        barHost = new TextView(this);
+        barHost.setTextColor(color(R.color.bar_muted));
+        barHost.setTextSize(11);
+        barHost.setSingleLine(true);
+        barHost.setEllipsize(TextUtils.TruncateAt.MIDDLE);
+        barHost.setTextDirection(View.TEXT_DIRECTION_LTR);
+        titles.addView(barTitle);
+        titles.addView(barHost);
+        LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(0, dp(42), 1);
+        tp.setMargins(dp(4), dp(6), dp(4), dp(6));
+        titles.setGravity(Gravity.CENTER_VERTICAL);
+        bar.addView(titles, tp);
+
+        bar.addView(barButton(R.drawable.ic_refresh, "רענון", v -> reload()));
+        bar.addView(barButton(R.drawable.ic_more, "תפריט", this::showPageMenu));
+        root.addView(bar, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)));
+        View line = new View(this);
+        line.setBackgroundColor(color(R.color.bar_line));
+        root.addView(line, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, dp(1) / 2)));
+        barLine = line;
+
+        progress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        progress.setMax(100);
+        progress.setProgressTintList(ColorStateList.valueOf(color(R.color.primary)));
+        progress.setVisibility(View.GONE);
+        root.addView(progress, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(3)));
+
+        // ---- find in page ----
+        findBar = new LinearLayout(this);
+        findBar.setGravity(Gravity.CENTER_VERTICAL);
+        findBar.setBackgroundColor(color(R.color.bar));
+        findBar.setPadding(dp(8), 0, dp(4), 0);
+        findBar.setVisibility(View.GONE);
+        root.addView(findBar, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
+
+        // ---- content ----
+        content = new FrameLayout(this);
+        root.addView(content, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
 
         web = new WebView(this);
         WebSettings s = web.getSettings();
+        // Like a normal browser: drop the "wv" (WebView) marker that some sites refuse.
+        mobileUa = s.getUserAgentString().replace("; wv)", ")");
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
         s.setDatabaseEnabled(true);
@@ -132,36 +257,35 @@ public class MainActivity extends Activity {
         s.setBuiltInZoomControls(true);
         s.setDisplayZoomControls(false);
         s.setMediaPlaybackRequiresUserGesture(false);
+        s.setGeolocationEnabled(true);
         s.setAllowFileAccess(false);
         s.setAllowContentAccess(false);
-        // Links with target=_blank load in this same view, so they pass the allow check.
-        s.setSupportMultipleWindows(false);
-        s.setJavaScriptCanOpenWindowsAutomatically(false);
+        // Pages that open new windows (target=_blank, window.open) load here and pass the allow check.
+        s.setSupportMultipleWindows(true);
+        s.setJavaScriptCanOpenWindowsAutomatically(true);
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, true);
+        applyDesktop(prefs.getBoolean("desktop", config.desktop), false);
 
+        web.addJavascriptInterface(new Bridge(), "SmtApp");
         web.setWebViewClient(new Client());
         web.setWebChromeClient(new Chrome());
         web.setDownloadListener(this::onDownload);
-        root.addView(web, match());
-
-        progress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
-        progress.setMax(100);
-        progress.setVisibility(View.GONE);
-        root.addView(progress, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(4), Gravity.TOP));
+        web.setOnLongClickListener(v -> onLongPress());
+        content.addView(web, match());
 
         home = new ScrollView(this);
-        home.setBackgroundColor(Color.parseColor("#F4F6FA"));
-        root.addView(home, match());
+        home.setBackgroundColor(color(R.color.page));
+        content.addView(home, match());
 
         errorView = new LinearLayout(this);
         errorView.setOrientation(LinearLayout.VERTICAL);
         errorView.setGravity(Gravity.CENTER);
         errorView.setPadding(dp(24), dp(24), dp(24), dp(24));
-        errorView.setBackgroundColor(Color.WHITE);
+        errorView.setBackgroundColor(color(R.color.page));
         errorText = new TextView(this);
         errorText.setTextSize(18);
+        errorText.setTextColor(color(R.color.bar_text));
         errorText.setGravity(Gravity.CENTER);
         errorView.addView(errorText);
         Button retry = new Button(this);
@@ -170,67 +294,321 @@ public class MainActivity extends Activity {
             errorView.setVisibility(View.GONE);
             web.reload();
         });
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         lp.topMargin = dp(16);
         errorView.addView(retry, lp);
         errorView.setVisibility(View.GONE);
-        root.addView(errorView, match());
+        content.addView(errorView, match());
+
+        // Small button to bring the bar back when it is hidden.
+        showBarButton = new ImageButton(this);
+        showBarButton.setImageResource(R.drawable.ic_expand);
+        showBarButton.setColorFilter(Color.WHITE, PorterDuff.Mode.SRC_IN);
+        showBarButton.setContentDescription("הצגת הסרגל");
+        GradientDrawable circle = new GradientDrawable();
+        circle.setShape(GradientDrawable.OVAL);
+        circle.setColor(0x99202833);
+        showBarButton.setBackground(circle);
+        showBarButton.setAlpha(0.75f);
+        showBarButton.setOnClickListener(v -> setBarVisible(true));
+        FrameLayout.LayoutParams sp = new FrameLayout.LayoutParams(dp(38), dp(38), Gravity.TOP | Gravity.START);
+        sp.setMargins(dp(10), dp(10), dp(10), dp(10));
+        content.addView(showBarButton, sp);
 
         setContentView(root);
+        setBarVisible(prefs.getBoolean("bar", config.toolbar));
     }
+
+    private View barLine;
+
+    private ImageButton barButton(int icon, String label, View.OnClickListener l) {
+        ImageButton b = new ImageButton(this);
+        b.setImageResource(icon);
+        b.setColorFilter(color(R.color.bar_text), PorterDuff.Mode.SRC_IN);
+        b.setContentDescription(label);
+        b.setBackground(new RippleDrawable(ColorStateList.valueOf(0x22000000), null, null));
+        b.setOnClickListener(l);
+        b.setOnLongClickListener(v -> {
+            Toast.makeText(this, label, Toast.LENGTH_SHORT).show();
+            return true;
+        });
+        b.setLayoutParams(new LinearLayout.LayoutParams(dp(42), dp(46)));
+        return b;
+    }
+
+    private void setBarVisible(boolean visible) {
+        bar.setVisibility(visible ? View.VISIBLE : View.GONE);
+        barLine.setVisibility(visible ? View.VISIBLE : View.GONE);
+        showBarButton.setVisibility(visible || isHomeShown() ? View.GONE : View.VISIBLE);
+        prefs.edit().putBoolean("bar", visible).apply();
+    }
+
+    private void updateBar() {
+        boolean onHome = isHomeShown();
+        btnBack.setEnabled(!onHome && (web.canGoBack() || config.sites.size() > 1));
+        btnBack.setAlpha(btnBack.isEnabled() ? 1f : 0.35f);
+        btnForward.setEnabled(!onHome && web.canGoForward());
+        btnForward.setAlpha(btnForward.isEnabled() ? 1f : 0.35f);
+        if (onHome) {
+            barTitle.setText(getString(R.string.app_name));
+            barHost.setText(config.sites.size() + " אתרים");
+        } else {
+            String t = web.getTitle();
+            String u = web.getUrl();
+            barTitle.setText(TextUtils.isEmpty(t) || (u != null && u.contains(t)) ? getString(R.string.app_name) : t);
+            barHost.setText(u == null ? "" : prettyUrl(u));
+        }
+        if (bar.getVisibility() != View.VISIBLE) showBarButton.setVisibility(onHome ? View.GONE : View.VISIBLE);
+    }
+
+    private static String prettyUrl(String u) {
+        return u.replaceFirst("^https?://(www\\.)?", "").replaceFirst("/$", "");
+    }
+
+    // ------------------------------------------------------------------ menu
+
+    private void showPageMenu(View anchor) {
+        PopupMenu pm = new PopupMenu(this, anchor);
+        Menu m = pm.getMenu();
+        boolean onHome = isHomeShown();
+        if (!onHome) {
+            m.add(0, M_COPY, 0, "העתקת קישור הדף");
+            m.add(0, M_SHARE, 1, "שיתוף");
+            m.add(0, M_FIND, 2, "חיפוש בדף");
+            m.add(0, M_DESKTOP, 3, "מצב מחשב").setCheckable(true).setChecked(isDesktop());
+            m.add(0, M_RELOAD, 4, "רענון");
+        }
+        m.add(0, M_HIDE_BAR, 5, "הסתרת הסרגל");
+        if (config.sites.size() > 1 && !onHome) m.add(0, M_HOME, 6, "מסך הבית");
+        if (config.hasPin()) m.add(0, M_SETTINGS, 7, "הגדרות");
+        pm.setOnMenuItemClickListener(this::onMenu);
+        pm.show();
+    }
+
+    private boolean onMenu(MenuItem item) {
+        switch (item.getItemId()) {
+            case M_COPY:
+                copyText(web.getUrl(), "הקישור הועתק");
+                return true;
+            case M_SHARE:
+                share(web.getUrl(), web.getTitle());
+                return true;
+            case M_FIND:
+                showFind();
+                return true;
+            case M_DESKTOP:
+                applyDesktop(!isDesktop(), true);
+                return true;
+            case M_RELOAD:
+                reload();
+                return true;
+            case M_HIDE_BAR:
+                setBarVisible(false);
+                Toast.makeText(this, "להצגה: הכפתור הקטן בפינה", Toast.LENGTH_SHORT).show();
+                return true;
+            case M_HOME:
+                showHome();
+                return true;
+            case M_SETTINGS:
+                askPin();
+                return true;
+        }
+        return false;
+    }
+
+    private boolean isDesktop() {
+        return prefs.getBoolean("desktop", config.desktop);
+    }
+
+    private void applyDesktop(boolean desktop, boolean reload) {
+        prefs.edit().putBoolean("desktop", desktop).apply();
+        WebSettings s = web.getSettings();
+        s.setUserAgentString(desktop ? DESKTOP_UA : mobileUa);
+        s.setUseWideViewPort(true);
+        s.setLoadWithOverviewMode(true);
+        if (reload && !isHomeShown()) {
+            web.reload();
+            Toast.makeText(this, desktop ? "מצב מחשב" : "מצב טלפון", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void showFind() {
+        findBar.removeAllViews();
+        EditText q = new EditText(this);
+        q.setHint("חיפוש בדף");
+        q.setSingleLine(true);
+        q.setTextColor(color(R.color.bar_text));
+        q.setHintTextColor(color(R.color.bar_muted));
+        q.setBackground(null);
+        TextView count = new TextView(this);
+        count.setTextColor(color(R.color.bar_muted));
+        count.setPadding(dp(8), 0, dp(8), 0);
+        web.setFindListener((active, matches, done) -> {
+            if (done) count.setText(matches == 0 ? "0" : (active + 1) + "/" + matches);
+        });
+        q.addTextChangedListener(new android.text.TextWatcher() {
+            public void beforeTextChanged(CharSequence s, int a, int b, int c) {
+            }
+
+            public void onTextChanged(CharSequence s, int a, int b, int c) {
+                web.findAllAsync(s.toString());
+            }
+
+            public void afterTextChanged(android.text.Editable s) {
+            }
+        });
+        Button next = new Button(this, null, android.R.attr.borderlessButtonStyle);
+        next.setText("הבא");
+        next.setOnClickListener(v -> web.findNext(true));
+        Button close = new Button(this, null, android.R.attr.borderlessButtonStyle);
+        close.setText("סגירה");
+        close.setOnClickListener(v -> {
+            web.clearMatches();
+            findBar.setVisibility(View.GONE);
+        });
+        findBar.addView(q, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        findBar.addView(count);
+        findBar.addView(next);
+        findBar.addView(close);
+        findBar.setVisibility(View.VISIBLE);
+        q.requestFocus();
+        ((android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE))
+                .showSoftInput(q, 0);
+    }
+
+    // ------------------------------------------------------------------ long press on links / images
+
+    private boolean onLongPress() {
+        WebView.HitTestResult r = web.getHitTestResult();
+        int type = r.getType();
+        final String extra = r.getExtra();
+        if (extra == null) return false; // plain text: let the page select it
+        if (type == WebView.HitTestResult.SRC_ANCHOR_TYPE || type == WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE) {
+            Handler h = new Handler(Looper.getMainLooper()) {
+                @Override
+                public void handleMessage(Message msg) {
+                    String url = msg.getData().getString("url");
+                    String title = msg.getData().getString("title");
+                    if (url == null) url = extra;
+                    linkMenu(url, title, type == WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE ? extra : null);
+                }
+            };
+            web.requestFocusNodeHref(h.obtainMessage());
+            return true;
+        }
+        if (type == WebView.HitTestResult.IMAGE_TYPE) {
+            linkMenu(null, null, extra);
+            return true;
+        }
+        return false;
+    }
+
+    private void linkMenu(String url, String text, String image) {
+        List<String> labels = new ArrayList<>();
+        List<Runnable> actions = new ArrayList<>();
+        if (url != null) {
+            labels.add("העתקת הקישור");
+            actions.add(() -> copyText(url, "הקישור הועתק"));
+            if (!TextUtils.isEmpty(text)) {
+                labels.add("העתקת טקסט הקישור");
+                actions.add(() -> copyText(text.trim(), "הטקסט הועתק"));
+            }
+            labels.add("פתיחה");
+            actions.add(() -> web.loadUrl(url));
+            labels.add("שיתוף הקישור");
+            actions.add(() -> share(url, text));
+        }
+        if (image != null && image.startsWith("http")) {
+            labels.add("העתקת כתובת התמונה");
+            actions.add(() -> copyText(image, "הכתובת הועתקה"));
+            labels.add("הורדת התמונה");
+            actions.add(() -> onDownload(image, web.getSettings().getUserAgentString(), null, "image/*", 0));
+        }
+        if (labels.isEmpty()) return;
+        AlertDialog.Builder b = new AlertDialog.Builder(this);
+        if (url != null) b.setTitle(prettyUrl(url));
+        b.setItems(labels.toArray(new String[0]), (d, i) -> actions.get(i).run());
+        b.show();
+    }
+
+    private void copyText(String text, String done) {
+        if (TextUtils.isEmpty(text)) return;
+        ((ClipboardManager) getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("link", text));
+        if (Build.VERSION.SDK_INT < 33) Toast.makeText(this, done, Toast.LENGTH_SHORT).show();
+    }
+
+    private void share(String url, String title) {
+        if (TextUtils.isEmpty(url)) return;
+        Intent i = new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, url);
+        if (!TextUtils.isEmpty(title)) i.putExtra(Intent.EXTRA_SUBJECT, title);
+        startActivity(Intent.createChooser(i, "שיתוף"));
+    }
+
+    // ------------------------------------------------------------------ home screen (several sites)
 
     private void showHome() {
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
-        list.setPadding(dp(16), dp(16), dp(16), dp(16));
+        list.setPadding(dp(16), dp(20), dp(16), dp(24));
 
         TextView title = new TextView(this);
         title.setText(getString(R.string.app_name));
-        title.setTextSize(24);
+        title.setTextSize(26);
         title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setTextColor(color(R.color.bar_text));
         title.setGravity(Gravity.CENTER);
-        title.setPadding(0, dp(8), 0, dp(16));
+        title.setPadding(0, dp(4), 0, dp(18));
         list.addView(title);
 
         if (config.sites.isEmpty()) {
             TextView empty = new TextView(this);
-            empty.setText(config.hasPin()
-                    ? "אין אתרים ברשימה. אפשר להוסיף בתפריט ← הגדרות."
-                    : "אין אתרים ברשימה.");
+            empty.setText(config.hasPin() ? "אין אתרים ברשימה. אפשר להוסיף בתפריט ← הגדרות." : "אין אתרים ברשימה.");
+            empty.setTextColor(color(R.color.bar_muted));
             empty.setGravity(Gravity.CENTER);
             list.addView(empty);
         }
 
         for (Config.Site site : config.sites) {
             LinearLayout card = new LinearLayout(this);
-            card.setOrientation(LinearLayout.VERTICAL);
-            card.setPadding(dp(18), dp(14), dp(18), dp(14));
-            GradientDrawable bg = new GradientDrawable();
-            bg.setColor(Color.WHITE);
-            bg.setCornerRadius(dp(12));
-            bg.setStroke(dp(1), Color.parseColor("#DDE3EC"));
-            card.setBackground(bg);
+            card.setGravity(Gravity.CENTER_VERTICAL);
+            card.setPadding(dp(14), dp(14), dp(14), dp(14));
+            GradientDrawable bg = rounded(color(R.color.bar), dp(16));
+            bg.setStroke(dp(1), color(R.color.bar_line));
+            card.setBackground(new RippleDrawable(ColorStateList.valueOf(0x22000000), bg, null));
             card.setClickable(true);
-            card.setFocusable(true);
 
+            TextView letter = new TextView(this);
+            String l = site.title.trim().isEmpty() ? "?" : site.title.trim().substring(0, 1);
+            letter.setText(l);
+            letter.setTextSize(20);
+            letter.setTypeface(Typeface.DEFAULT_BOLD);
+            letter.setTextColor(Color.WHITE);
+            letter.setGravity(Gravity.CENTER);
+            GradientDrawable dot = new GradientDrawable();
+            dot.setShape(GradientDrawable.OVAL);
+            dot.setColor(color(R.color.primary));
+            letter.setBackground(dot);
+            card.addView(letter, new LinearLayout.LayoutParams(dp(44), dp(44)));
+
+            LinearLayout txt = new LinearLayout(this);
+            txt.setOrientation(LinearLayout.VERTICAL);
+            txt.setPadding(dp(14), 0, dp(14), 0);
             TextView name = new TextView(this);
             name.setText(site.title);
-            name.setTextSize(18);
+            name.setTextSize(17);
             name.setTypeface(Typeface.DEFAULT_BOLD);
-            name.setTextColor(Color.parseColor("#1B2430"));
-            card.addView(name);
-
+            name.setTextColor(color(R.color.bar_text));
+            txt.addView(name);
             TextView host = new TextView(this);
             host.setText(Config.hostOf(site.url));
-            host.setTextColor(Color.parseColor("#6B7686"));
+            host.setTextColor(color(R.color.bar_muted));
             host.setTextDirection(View.TEXT_DIRECTION_LTR);
-            card.addView(host);
+            txt.addView(host);
+            card.addView(txt, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
 
             final String url = site.url;
             card.setOnClickListener(v -> open(url));
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             lp.bottomMargin = dp(10);
             list.addView(card, lp);
         }
@@ -239,20 +617,21 @@ public class MainActivity extends Activity {
         home.addView(list);
         home.setVisibility(View.VISIBLE);
         errorView.setVisibility(View.GONE);
+        findBar.setVisibility(View.GONE);
         progress.setVisibility(View.GONE);
         web.stopLoading();
         web.setVisibility(View.INVISIBLE);
-        invalidateOptionsMenu();
+        updateBar();
     }
 
     private void showWeb() {
         home.setVisibility(View.GONE);
         web.setVisibility(View.VISIBLE);
-        invalidateOptionsMenu();
+        updateBar();
     }
 
     private boolean isHomeShown() {
-        return home.getVisibility() == View.VISIBLE;
+        return home != null && home.getVisibility() == View.VISIBLE;
     }
 
     private void open(String url) {
@@ -263,47 +642,44 @@ public class MainActivity extends Activity {
         clearHistoryOnNextPage = true;
     }
 
-    private boolean clearHistoryOnNextPage;
+    private void goHome() {
+        if (config.sites.size() > 1) showHome();
+        else if (!config.sites.isEmpty()) open(config.sites.get(0).url);
+    }
 
-    private void blocked(String url) {
+    private void goBack() {
+        if (fullscreenView != null) hideFullscreen();
+        else if (findBar.getVisibility() == View.VISIBLE) {
+            web.clearMatches();
+            findBar.setVisibility(View.GONE);
+        } else if (!isHomeShown() && web.canGoBack()) {
+            errorView.setVisibility(View.GONE);
+            web.goBack();
+        } else if (!isHomeShown() && config.sites.size() > 1) showHome();
+        else moveTaskToBack(true);
+    }
+
+    private void reload() {
+        if (isHomeShown()) return;
+        errorView.setVisibility(View.GONE);
+        web.reload();
+    }
+
+    private void blocked() {
         Toast.makeText(this, "הכתובת לא מורשית באפליקציה", Toast.LENGTH_SHORT).show();
     }
 
-    // ------------------------------------------------------------------ menu
-
     @Override
-    public boolean onPrepareOptionsMenu(Menu menu) {
-        menu.clear();
-        if (config.sites.size() > 1 && !isHomeShown()) {
-            menu.add(0, MENU_HOME, 0, "מסך הבית").setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM);
-        }
-        if (!isHomeShown()) menu.add(0, MENU_RELOAD, 1, "רענון");
-        if (config.hasPin()) menu.add(0, MENU_SETTINGS, 2, "הגדרות");
-        return true;
+    public void onBackPressed() {
+        goBack();
     }
 
-    @Override
-    public boolean onOptionsItemSelected(MenuItem item) {
-        switch (item.getItemId()) {
-            case MENU_HOME:
-                showHome();
-                return true;
-            case MENU_RELOAD:
-                errorView.setVisibility(View.GONE);
-                web.reload();
-                return true;
-            case MENU_SETTINGS:
-                askPin();
-                return true;
-        }
-        return super.onOptionsItemSelected(item);
-    }
+    // ------------------------------------------------------------------ settings (PIN)
 
     private void askPin() {
         long wait = config.lockRemaining();
         if (wait > 0) {
-            Toast.makeText(this, "יותר מדי ניסיונות. נסה שוב בעוד " + (wait / 1000 + 1) + " שניות",
-                    Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "יותר מדי ניסיונות. נסה שוב בעוד " + (wait / 1000 + 1) + " שניות", Toast.LENGTH_LONG).show();
             return;
         }
         EditText input = new EditText(this);
@@ -327,47 +703,31 @@ public class MainActivity extends Activity {
         input.requestFocus();
     }
 
-    // ------------------------------------------------------------------ navigation
-
-    @Override
-    public void onBackPressed() {
-        if (fullscreenView != null) {
-            hideFullscreen();
-        } else if (!isHomeShown() && web.canGoBack()) {
-            errorView.setVisibility(View.GONE);
-            web.goBack();
-        } else if (!isHomeShown() && config.sites.size() > 1) {
-            showHome();
-        } else {
-            super.onBackPressed();
-        }
-    }
+    // ------------------------------------------------------------------ web clients
 
     private class Client extends WebViewClient {
-
-        private boolean check(WebView view, String url) {
+        private boolean check(String url) {
             if (config.isAllowed(url)) return false;
-            blocked(url);
+            blocked();
             return true;
         }
 
         @Override
         @SuppressWarnings("deprecation")
         public boolean shouldOverrideUrlLoading(WebView view, String url) {
-            return check(view, url);
+            return check(url);
         }
 
         @Override
         public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-            return check(view, request.getUrl().toString());
+            return check(request.getUrl().toString());
         }
 
         @Override
         public void onPageStarted(WebView view, String url, Bitmap favicon) {
-            // Catches navigations that skip shouldOverrideUrlLoading (form posts, some redirects).
             if (!config.isAllowed(url)) {
                 view.stopLoading();
-                blocked(url);
+                blocked();
                 if (view.canGoBack()) {
                     view.goBack();
                 } else if (config.sites.size() > 1) {
@@ -381,22 +741,29 @@ public class MainActivity extends Activity {
                 return;
             }
             progress.setVisibility(View.VISIBLE);
+            view.evaluateJavascript(bridgeJs, null);
+            updateBar();
         }
 
         @Override
         public void onPageFinished(WebView view, String url) {
             progress.setVisibility(View.GONE);
+            view.evaluateJavascript(bridgeJs, null);
             if (clearHistoryOnNextPage) {
                 view.clearHistory();
                 clearHistoryOnNextPage = false;
             }
+            updateBar();
+        }
+
+        @Override
+        public void doUpdateVisitedHistory(WebView view, String url, boolean isReload) {
+            updateBar();
         }
 
         @Override
         public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
-            if (Build.VERSION.SDK_INT >= 23 && request.isForMainFrame()) {
-                showError();
-            }
+            if (Build.VERSION.SDK_INT >= 23 && request.isForMainFrame()) showError();
         }
 
         @Override
@@ -420,6 +787,75 @@ public class MainActivity extends Activity {
         }
 
         @Override
+        public void onReceivedTitle(WebView view, String title) {
+            updateBar();
+        }
+
+        /** window.open / target=_blank: load in this same view (still checked against the allowed sites). */
+        @Override
+        public boolean onCreateWindow(WebView view, boolean isDialog, boolean isUserGesture, Message resultMsg) {
+            WebView temp = new WebView(MainActivity.this);
+            temp.setWebViewClient(new WebViewClient() {
+                @Override
+                public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) {
+                    String u = r.getUrl().toString();
+                    if (config.isAllowed(u)) web.loadUrl(u);
+                    else blocked();
+                    v.destroy();
+                    return true;
+                }
+            });
+            ((WebView.WebViewTransport) resultMsg.obj).setWebView(temp);
+            resultMsg.sendToTarget();
+            return true;
+        }
+
+        /** Microphone / camera, like a browser: Android asks the first time. */
+        @Override
+        public void onPermissionRequest(PermissionRequest request) {
+            runOnUiThread(() -> {
+                if (!config.isAllowed(request.getOrigin().toString())) {
+                    request.deny();
+                    return;
+                }
+                List<String> need = new ArrayList<>();
+                for (String r : request.getResources()) {
+                    if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(r)) need.add(Manifest.permission.RECORD_AUDIO);
+                    if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(r)) need.add(Manifest.permission.CAMERA);
+                }
+                if (need.isEmpty()) {
+                    request.deny();
+                    return;
+                }
+                List<String> missing = new ArrayList<>();
+                for (String p : need) if (checkSelfPermission(p) != PackageManager.PERMISSION_GRANTED) missing.add(p);
+                if (missing.isEmpty()) {
+                    grantMedia(request);
+                } else {
+                    if (pendingMedia != null) pendingMedia.deny();
+                    pendingMedia = request;
+                    requestPermissions(missing.toArray(new String[0]), REQ_MEDIA);
+                }
+            });
+        }
+
+        @Override
+        public void onGeolocationPermissionsShowPrompt(String origin, GeolocationPermissions.Callback callback) {
+            if (!config.isAllowed(origin)) {
+                callback.invoke(origin, false, false);
+                return;
+            }
+            if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                callback.invoke(origin, true, false);
+            } else {
+                pendingGeoOrigin = origin;
+                pendingGeo = callback;
+                requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION,
+                        Manifest.permission.ACCESS_COARSE_LOCATION}, REQ_LOCATION);
+            }
+        }
+
+        @Override
         public void onShowCustomView(View view, CustomViewCallback callback) {
             if (fullscreenView != null) {
                 callback.onCustomViewHidden();
@@ -427,11 +863,9 @@ public class MainActivity extends Activity {
             }
             fullscreenView = view;
             fullscreenCallback = callback;
-            root.addView(view, match());
-            getWindow().getDecorView().setSystemUiVisibility(
-                    View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                            | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
-            if (getActionBar() != null) getActionBar().hide();
+            ((FrameLayout) getWindow().getDecorView()).addView(view, match());
+            getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN
+                    | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
         }
 
         @Override
@@ -440,16 +874,13 @@ public class MainActivity extends Activity {
         }
 
         @Override
-        public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback,
-                                         FileChooserParams params) {
+        public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback, FileChooserParams params) {
             if (fileCallback != null) fileCallback.onReceiveValue(null);
             fileCallback = callback;
             try {
                 Intent i = params.createIntent();
-                if (params.getMode() == FileChooserParams.MODE_OPEN_MULTIPLE) {
-                    i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
-                }
-                startActivityForResult(i, REQ_FILE);
+                if (params.getMode() == FileChooserParams.MODE_OPEN_MULTIPLE) i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+                startActivityForResult(Intent.createChooser(i, "בחירת קובץ"), REQ_FILE);
                 return true;
             } catch (Exception e) {
                 fileCallback = null;
@@ -458,14 +889,120 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void grantMedia(PermissionRequest request) {
+        List<String> ok = new ArrayList<>();
+        for (String r : request.getResources()) {
+            if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(r)
+                    && checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) ok.add(r);
+            if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(r)
+                    && checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) ok.add(r);
+        }
+        if (ok.isEmpty()) request.deny();
+        else request.grant(ok.toArray(new String[0]));
+    }
+
     private void hideFullscreen() {
         if (fullscreenView == null) return;
-        root.removeView(fullscreenView);
+        ((FrameLayout) getWindow().getDecorView()).removeView(fullscreenView);
         fullscreenView = null;
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
-        if (getActionBar() != null) getActionBar().show();
         if (fullscreenCallback != null) fullscreenCallback.onCustomViewHidden();
         fullscreenCallback = null;
+    }
+
+    // ------------------------------------------------------------------ notifications from the site
+
+    private class Bridge {
+        @JavascriptInterface
+        public void notify(String title, String body, String tag) {
+            runOnUiThread(() -> showNotification(title, body, tag));
+        }
+
+        @JavascriptInterface
+        public void cancel(String tag) {
+            ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).cancel(tag, 1);
+        }
+
+        @JavascriptInterface
+        public String permission() {
+            if (notificationsAllowed()) return "granted";
+            if (Build.VERSION.SDK_INT >= 33 && !prefs.getBoolean("notify_denied", false)) return "default";
+            return "denied";
+        }
+
+        @JavascriptInterface
+        public void requestPermission(int id) {
+            runOnUiThread(() -> {
+                if (notificationsAllowed() || Build.VERSION.SDK_INT < 33) {
+                    resolveNotify(id);
+                    return;
+                }
+                pendingNotifyId = id;
+                requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQ_NOTIFY);
+            });
+        }
+    }
+
+    private boolean notificationsAllowed() {
+        if (Build.VERSION.SDK_INT >= 33
+                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return false;
+        return ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).areNotificationsEnabled();
+    }
+
+    private void resolveNotify(int id) {
+        web.evaluateJavascript("window.__smtPermission&&window.__smtPermission(" + id + ",'"
+                + (notificationsAllowed() ? "granted" : "denied") + "')", null);
+    }
+
+    private void showNotification(String title, String body, String tag) {
+        if (!notificationsAllowed()) return;
+        NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        if (Build.VERSION.SDK_INT >= 26) {
+            nm.createNotificationChannel(new NotificationChannel("site", "התראות מהאתר", NotificationManager.IMPORTANCE_HIGH));
+        }
+        Intent open = new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP).putExtra(EXTRA_TAG, tag);
+        PendingIntent pi = PendingIntent.getActivity(this, tag.hashCode(), open,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        Notification.Builder b = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(this, "site")
+                : new Notification.Builder(this).setPriority(Notification.PRIORITY_HIGH).setDefaults(Notification.DEFAULT_ALL);
+        b.setSmallIcon(android.R.drawable.stat_notify_chat)
+                .setContentTitle(title)
+                .setContentText(body)
+                .setStyle(new Notification.BigTextStyle().bigText(body))
+                .setAutoCancel(true)
+                .setContentIntent(pi);
+        nm.notify(tag, 1, b.build());
+    }
+
+    private void handleNotificationTap(Intent intent) {
+        String tag = intent == null ? null : intent.getStringExtra(EXTRA_TAG);
+        if (tag == null) return;
+        String js = "window.__smtNotificationClick&&window.__smtNotificationClick('"
+                + tag.replace("\\", "\\\\").replace("'", "\\'") + "')";
+        web.evaluateJavascript(js, null);
+    }
+
+    // ------------------------------------------------------------------ results
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] perms, int[] results) {
+        boolean ok = results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED;
+        if (requestCode == REQ_MEDIA && pendingMedia != null) {
+            grantMedia(pendingMedia);
+            pendingMedia = null;
+        } else if (requestCode == REQ_LOCATION && pendingGeo != null) {
+            boolean any = false;
+            for (int r : results) any |= r == PackageManager.PERMISSION_GRANTED;
+            pendingGeo.invoke(pendingGeoOrigin, any, false);
+            pendingGeo = null;
+        } else if (requestCode == REQ_NOTIFY) {
+            if (!ok) prefs.edit().putBoolean("notify_denied", true).apply();
+            resolveNotify(pendingNotifyId);
+        } else if (requestCode == REQ_STORAGE && pendingDownload != null) {
+            if (ok) enqueue(pendingDownload, pendingDownloadName);
+            else Toast.makeText(this, "אין הרשאה לשמור קבצים", Toast.LENGTH_SHORT).show();
+            pendingDownload = null;
+        }
     }
 
     @Override
@@ -485,7 +1022,6 @@ public class MainActivity extends Activity {
             fileCallback.onReceiveValue(result);
             fileCallback = null;
         } else if (requestCode == REQ_SETTINGS && resultCode == RESULT_OK) {
-            // Settings changed: reload them and start again.
             config = new Config(this);
             showStart();
         }
@@ -494,12 +1030,12 @@ public class MainActivity extends Activity {
     // ------------------------------------------------------------------ downloads
 
     private void onDownload(String url, String userAgent, String disposition, String mime, long length) {
-        if (!config.isAllowed(url)) {
-            blocked(url);
-            return;
-        }
         if (!url.startsWith("http")) {
             Toast.makeText(this, "לא ניתן להוריד קובץ זה", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (!config.isAllowed(url) && !config.isAllowed(web.getUrl())) {
+            blocked();
             return;
         }
         String name = URLUtil.guessFileName(url, disposition, mime);
@@ -508,13 +1044,11 @@ public class MainActivity extends Activity {
         if (cookies != null) r.addRequestHeader("Cookie", cookies);
         r.addRequestHeader("User-Agent", userAgent);
         r.setTitle(name);
-        r.setMimeType(mime);
+        if (mime != null && !mime.endsWith("/*")) r.setMimeType(mime);
         r.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
         r.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, name);
-
         if (Build.VERSION.SDK_INT >= 23 && Build.VERSION.SDK_INT <= 28
-                && checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                != PackageManager.PERMISSION_GRANTED) {
+                && checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
             pendingDownload = r;
             pendingDownloadName = name;
             requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, REQ_STORAGE);
@@ -532,26 +1066,36 @@ public class MainActivity extends Activity {
         }
     }
 
-    @Override
-    public void onRequestPermissionsResult(int requestCode, String[] perms, int[] results) {
-        if (requestCode == REQ_STORAGE && pendingDownload != null) {
-            if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) {
-                enqueue(pendingDownload, pendingDownloadName);
-            } else {
-                Toast.makeText(this, "אין הרשאה לשמור קבצים", Toast.LENGTH_SHORT).show();
-            }
-            pendingDownload = null;
-        }
+    // ------------------------------------------------------------------ utils
+
+    private int color(int res) {
+        return getColor(res);
     }
 
-    // ------------------------------------------------------------------ utils
+    private GradientDrawable rounded(int fill, int radius) {
+        GradientDrawable d = new GradientDrawable();
+        d.setColor(fill);
+        d.setCornerRadius(radius);
+        return d;
+    }
+
+    private String readAsset(String name) {
+        try (InputStream in = getAssets().open(name)) {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            byte[] buf = new byte[4096];
+            int n;
+            while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+            return out.toString("UTF-8");
+        } catch (Exception e) {
+            return "";
+        }
+    }
 
     private int dp(int v) {
         return Math.round(v * getResources().getDisplayMetrics().density);
     }
 
     private static FrameLayout.LayoutParams match() {
-        return new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT);
+        return new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
     }
 }

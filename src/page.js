@@ -67,6 +67,11 @@ body[data-type=site] .only-lock,body[data-type=lock] .only-site{display:none!imp
 .steps-list{text-align:right;margin:8px 0 0;padding-inline-start:20px}
 .steps-list li{margin:6px 0}
 code.cmd{display:block;direction:ltr;text-align:left;background:var(--field);border:1px solid var(--line);border-radius:10px;padding:10px;font-size:12px;word-break:break-all;margin:8px 0}
+.update-box{display:flex;gap:8px}
+.update-box input{flex:1}
+.updating{display:flex;align-items:center;gap:10px;justify-content:space-between;background:color-mix(in srgb,var(--accent) 10%,var(--card));border:1px solid color-mix(in srgb,var(--accent) 35%,var(--line));border-radius:12px;padding:10px 12px;margin-bottom:16px}
+.check{display:flex;align-items:flex-start;gap:8px;margin:10px 0 0;cursor:pointer}
+.check input{margin-top:5px}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 @media (max-width:520px){.grid2{grid-template-columns:1fr}}
 .err{color:var(--danger);font-weight:500;min-height:1.5em;margin:10px 0 0;text-align:center}
@@ -97,6 +102,20 @@ footer{text-align:center;color:var(--muted);font-size:13px;margin-top:20px}
     <button type="button" class="tab" role="tab" data-type="lock" aria-selected="false"><b>נעילת אפליקציות</b><span>נעילה וחסימה של אפליקציות בטלפון</span></button>
   </div>
 
+  <div class="updating" id="updating" hidden>
+    <span>מעדכן את <b id="updName"></b>. הבנייה תותקן כעדכון על האפליקציה הקיימת.</span>
+    <button type="button" class="btn" id="updCancel">ביטול</button>
+  </div>
+  <details class="card" id="updDetails" style="padding:14px 20px">
+    <summary style="cursor:pointer;font-weight:700">עדכון לאפליקציה שכבר יצרתם</summary>
+    <p class="hint" style="margin:10px 0 8px">הדביקו את קישור ההורדה של האפליקציה הקודמת. ההגדרות שלה ייטענו, ואפשר לשנות אותן ולבנות גרסה חדשה שתותקן כעדכון, בלי למחוק את הקיימת.</p>
+    <div class="update-box">
+      <input type="url" id="updLink" class="ltr" placeholder="https://smti.uk/apk/download/…">
+      <button type="button" class="btn" id="updLoad">טעינה</button>
+    </div>
+    <p class="small" style="margin:8px 0 0">אין קישור? בנייה עם אותו שם בדיוק ואותו אתר ראשון מתעדכנת גם כן.</p>
+  </details>
+
   <form id="form" novalidate>
     <div class="card">
       <h2>פרטי האפליקציה</h2>
@@ -123,6 +142,7 @@ footer{text-align:center;color:var(--muted);font-size:13px;margin-top:20px}
         <div>
           <label class="f" for="lockPin">קוד</label>
           <input type="password" id="lockPin" class="ltr" inputmode="numeric" maxlength="8" placeholder="4–8 ספרות" autocomplete="new-password">
+          <p class="small upd-only" hidden style="margin:4px 0 0">ריק = נשאר הקוד הקיים</p>
         </div>
         <div>
           <label class="f" for="lockPin2">שוב את הקוד</label>
@@ -159,6 +179,7 @@ footer{text-align:center;color:var(--muted);font-size:13px;margin-top:20px}
         <div>
           <label class="f" for="pin">קוד להגדרות <span class="small">(לא חובה)</span></label>
           <input type="password" id="pin" class="ltr" inputmode="numeric" maxlength="8" placeholder="4–8 ספרות" autocomplete="new-password">
+          <p class="small upd-only" hidden style="margin:4px 0 0">ריק = נשאר הקוד הקיים</p>
         </div>
         <div>
           <label class="f" for="orientation">מצב מסך</label>
@@ -169,7 +190,9 @@ footer{text-align:center;color:var(--muted);font-size:13px;margin-top:20px}
           </select>
         </div>
       </div>
-      <p class="hint" style="margin-top:8px">עם קוד, בתפריט האפליקציה יהיה מסך הגדרות שבו אפשר להוסיף ולהסיר אתרים בלי לבנות אפליקציה חדשה. בלי קוד, הרשימה קבועה.</p>
+      <label class="check"><input type="checkbox" id="optToolbar" checked> <span><b>סרגל דפדפן</b>: אחורה, קדימה, דף הבית, רענון, העתקת קישור, שיתוף וחיפוש בדף. אפשר להסתיר אותו מתוך האפליקציה.</span></label>
+      <label class="check"><input type="checkbox" id="optDesktop"> <span><b>מצב מחשב</b> כברירת מחדל (אפשר להחליף גם מתוך האפליקציה).</span></label>
+      <p class="hint" style="margin-top:12px">עם קוד, בתפריט האפליקציה יהיה מסך הגדרות שבו אפשר להוסיף ולהסיר אתרים בלי לבנות אפליקציה חדשה. בלי קוד, הרשימה קבועה.</p>
     </div>
 
     <button type="submit" class="btn primary" id="submit">יצירת אפליקציה</button>
@@ -249,6 +272,44 @@ footer{text-align:center;color:var(--muted);font-size:13px;margin-top:20px}
   }
   document.querySelectorAll(".tab").forEach((b) => (b.onclick = () => setType(b.dataset.type)));
 
+  // ---------- update an app built before ----------
+  let updateOf = null;
+  function setUpdating(id, name) {
+    updateOf = id;
+    $("updating").hidden = !id;
+    $("updName").textContent = name || "";
+    $("updDetails").hidden = !!id;
+    document.querySelectorAll(".upd-only").forEach((e) => (e.hidden = !id));
+  }
+  $("updCancel").onclick = () => setUpdating(null);
+  $("updLoad").onclick = async () => {
+    const m = /([a-f0-9]{24})/.exec($("updLink").value);
+    if (!m) return showErr("לא זיהינו קישור הורדה של אפליקציה");
+    showErr("");
+    $("updLoad").disabled = true;
+    try {
+      const r = await fetch(API + "/jobs/" + m[1] + "/settings", { cache: "no-store" });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.ok) throw new Error(d.error || "הטעינה נכשלה");
+      setType(d.type);
+      $("appName").value = d.appName;
+      if (d.type === "site") {
+        $("sites").innerHTML = "";
+        (d.sites.length ? d.sites : [{}]).forEach((x) => addSite(x.title || "", x.url || "", !!x.restrictPath));
+        $("extra").value = (d.extraDomains || []).join("\\n");
+        $("orientation").value = d.orientation || "auto";
+        $("optToolbar").checked = d.toolbar !== false;
+        $("optDesktop").checked = !!d.desktop;
+      }
+      setUpdating(m[1], d.appName);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch (err) {
+      showErr(err.message);
+    } finally {
+      $("updLoad").disabled = false;
+    }
+  };
+
   // ---------- sites list ----------
   function addSite(title = "", url = "", restrict = false) {
     const box = document.createElement("div");
@@ -321,9 +382,11 @@ footer{text-align:center;color:var(--muted);font-size:13px;margin-top:20px}
 
     if (type === "lock") {
       const p1 = $("lockPin").value.trim();
-      if (!/^\\d{4,8}$/.test(p1)) { $("lockPin").focus(); return showErr("הקוד צריך להיות 4 עד 8 ספרות"); }
-      if (p1 !== $("lockPin2").value.trim()) { $("lockPin2").focus(); return showErr("הקודים לא תואמים"); }
-      return send({ type: "lock", appName, pin: p1, icon: iconData });
+      if (!(updateOf && !p1)) {
+        if (!/^\\d{4,8}$/.test(p1)) { $("lockPin").focus(); return showErr("הקוד צריך להיות 4 עד 8 ספרות"); }
+        if (p1 !== $("lockPin2").value.trim()) { $("lockPin2").focus(); return showErr("הקודים לא תואמים"); }
+      }
+      return send({ type: "lock", appName, pin: p1, icon: iconData, updateOf });
     }
 
     const sites = [];
@@ -341,7 +404,8 @@ footer{text-align:center;color:var(--muted);font-size:13px;margin-top:20px}
     const pin = $("pin").value.trim();
     if (pin && !/^\\d{4,8}$/.test(pin)) { $("pin").focus(); return showErr("הקוד צריך להיות 4 עד 8 ספרות"); }
 
-    return send({ type: "site", appName, sites, extraDomains, pin, orientation: $("orientation").value, icon: iconData });
+    return send({ type: "site", appName, sites, extraDomains, pin, orientation: $("orientation").value,
+      toolbar: $("optToolbar").checked, desktop: $("optDesktop").checked, icon: iconData, updateOf });
   };
 
   async function send(payload) {
@@ -413,7 +477,7 @@ footer{text-align:center;color:var(--muted);font-size:13px;margin-top:20px}
     };
     poll();
   }
-  $("again").onclick = () => { clearTimeout(timer); store.set("apkJob", null); view(null); };
+  $("again").onclick = () => { clearTimeout(timer); store.set("apkJob", null); setUpdating(null); view(null); };
 
   const last = store.get("apkJob");
   if (last && /^[a-f0-9]{24}$/.test(last)) track(last);
