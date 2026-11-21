@@ -32,7 +32,7 @@ jobs:
           sparse-checkout: |
             android
             lock
-            filter
+            mdm
             scripts
 
       - name: Check job id and secret
@@ -54,8 +54,8 @@ jobs:
           SECRET: ${{ secrets.APK_BUILD_SECRET }}
         run: |
           curl -fsS -H "Authorization: Bearer $SECRET" "$BUILDER_URL/builder/jobs/$JOB_ID" -o job.json
-          # "site" apps are built from android/, the app locker from lock/, the website filter from filter/
-          case "$(jq -r '.type // "site"' job.json)" in lock) PROJ=lock ;; filter) PROJ=filter ;; *) PROJ=android ;; esac
+          # "site" apps are built from android/, the app locker from lock/, device management from mdm/
+          case "$(jq -r '.type // "site"' job.json)" in lock) PROJ=lock ;; mdm) PROJ=mdm ;; *) PROJ=android ;; esac
           mv job.json "$PROJ/job.json"
           cd "$PROJ"
           jq '.config' job.json > app/src/main/assets/config.json
@@ -100,7 +100,7 @@ jobs:
           elif [ -n "$FIRST_URL" ] && python3 -I "$GITHUB_WORKSPACE/scripts/find_icon.py" "$FIRST_URL" icon_site.png; then
             # The site's own icon: centred on white.
             ICON=icon_site.png; MODE=padded; BG="#FFFFFF"
-          elif [ "$PROJ" = lock ] || [ "$PROJ" = filter ]; then
+          elif [ "$PROJ" = lock ] || [ "$PROJ" = mdm ]; then
             echo "Icon: default $PROJ"; exit 0
           else
             # No icon anywhere: the first letter of the app name on a colour.
@@ -170,6 +170,12 @@ jobs:
             rm -f ks.json
           fi
           echo "::add-mask::$PASS"
+          # The certificate's SHA-256 (base64url) lets managed phones be set up by scanning a QR code.
+          SUM=$(keytool -exportcert -alias "${KEY_ALIAS:-smt}" -keystore "$KS" -storepass "$PASS" 2>/dev/null | openssl dgst -sha256 -binary | openssl base64 -A | tr '+/' '-_' | tr -d '=')
+          if [ -n "$SUM" ]; then
+            curl -fsS -X PUT -H "Authorization: Bearer $SECRET" -H "content-type: application/json" \
+              -d "{\"sha256\":\"$SUM\"}" "$BUILDER_URL/builder/cert" >/dev/null || true
+          fi
           echo "KEYSTORE_FILE=$KS" >> "$GITHUB_ENV"
           echo "KEYSTORE_PASSWORD=$PASS" >> "$GITHUB_ENV"
 

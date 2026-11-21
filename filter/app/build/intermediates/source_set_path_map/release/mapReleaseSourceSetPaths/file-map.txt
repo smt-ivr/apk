@@ -1,0 +1,8 @@
+uk.smti.filter.app-pngs-0 /home/user/apk/filter/app/build/generated/res/pngs/release
+uk.smti.filter.app-resValues-1 /home/user/apk/filter/app/build/generated/res/resValues/release
+uk.smti.filter.app-packageReleaseResources-2 /home/user/apk/filter/app/build/intermediates/incremental/release/packageReleaseResources/merged.dir
+uk.smti.filter.app-packageReleaseResources-3 /home/user/apk/filter/app/build/intermediates/incremental/release/packageReleaseResources/stripped.dir
+uk.smti.filter.app-merged-not-compiled-resources-4 /home/user/apk/filter/app/build/intermediates/merged-not-compiled-resources/release
+uk.smti.filter.app-release-5 /home/user/apk/filter/app/build/intermediates/merged_res/release/mergeReleaseResources
+uk.smti.filter.app-main-6 /home/user/apk/filter/app/src/main/res
+uk.smti.filter.app-release-7 /home/user/apk/filter/app/src/release/res

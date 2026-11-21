@@ -1,0 +1,145 @@
+uk.smti.filter.BlockActivity:
+    public static final java.lang.String EXTRA_DOMAIN
+uk.smti.filter.BlockMonitor:
+    private void <init>()
+uk.smti.filter.Dns:
+    private void <init>()
+uk.smti.filter.FilterVpn:
+    public static final java.lang.String ACTION_RELOAD
+    public static final java.lang.String ACTION_STOP
+    static final java.lang.String DNS_IP
+uk.smti.filter.MainActivity:
+    private static final int REQ_ADMIN
+    private static final int REQ_NOTIFY
+    private static final int REQ_VPN
+uk.smti.filter.Notify:
+    static final int OFF_ID
+    static final int ONGOING_ID
+    private void <init>()
+uk.smti.filter.Owner:
+    private void <init>()
+uk.smti.filter.Pin:
+    private void <init>()
+uk.smti.filter.R$color
+uk.smti.filter.R$drawable:
+    public static int ic_launcher_fg
+    private void <init>()
+uk.smti.filter.R$mipmap
+uk.smti.filter.R$string:
+    private void <init>()
+uk.smti.filter.R$style
+uk.smti.filter.R$xml
+uk.smti.filter.R
+uk.smti.filter.Store:
+    public boolean running()
+uk.smti.filter.Sync:
+    private static final int JOB
+    private void <init>()
+uk.smti.filter.Ui:
+    static final int BAD
+    static final int BG
+    static final int BLUE
+    static final int BLUE2
+    static final int CARD
+    static final int GOLD
+    static final int GOOD
+    static final int LINE
+    static final int NAVY
+    static final int NAVY2
+    static final int SLATE
+    static final int TEAL
+    static final int TEXT
+    static final int TEXT2
+    static final int TEXT3
+    static final int VIOLET
+    static final int WARN
+    private void <init>()
+uk.smti.filter.BlockActivity$1:
+    public final synthetic uk.smti.filter.BlockActivity this$0
+uk.smti.filter.BlockActivity:
+    public static void askApproval()
+    public static synthetic void lambda$askApproval$4()
+    public static void lambda$askApproval$5()
+    public static void lambda$build$0()
+    public static synthetic void lambda$build$1()
+    public static void lambda$build$2()
+    public static synthetic void lambda$build$3()
+uk.smti.filter.FilterVpn:
+    public static void establish()
+    public static void forward()
+    public static void lambda$handle$0()
+    public static void readLoop()
+    public static void showOngoing()
+    public final void write(byte[])
+uk.smti.filter.MainActivity:
+    public static void alwaysOnHelp()
+    public static synthetic void lambda$alwaysOnHelp$20()
+    public static synthetic void lambda$onResume$0()
+    public static synthetic void lambda$pause$18()
+    public static synthetic void lambda$pause$19()
+    public static synthetic void lambda$render$1()
+    public static void lambda$render$10()
+    public static synthetic void lambda$render$11()
+    public static synthetic void lambda$render$12()
+    public static synthetic void lambda$render$13()
+    public static void lambda$render$14()
+    public static synthetic void lambda$render$15()
+    public static synthetic void lambda$render$16()
+    public static synthetic void lambda$render$17()
+    public static synthetic void lambda$render$2()
+    public static void lambda$render$3()
+    public static synthetic void lambda$render$4()
+    public static void lambda$render$5()
+    public static synthetic void lambda$render$6()
+    public static synthetic void lambda$render$7()
+    public static void lambda$render$8()
+    public static synthetic void lambda$render$9()
+    public static synthetic void lambda$strongHelp$21()
+    public static synthetic void lambda$uninstall$22()
+    public static void pause()
+    public static void strongHelp()
+    public static void uninstall()
+uk.smti.filter.Notify:
+    public static android.app.PendingIntent openApp(android.content.Context)
+uk.smti.filter.Owner:
+    public static android.app.admin.DevicePolicyManager dpm(android.content.Context)
+    public static boolean isAdmin(android.content.Context)
+uk.smti.filter.R$drawable
+uk.smti.filter.R$string
+uk.smti.filter.Rules:
+    public final int allowCount()
+    public static boolean allowed()
+    public static boolean essential()
+    public static boolean remotePaused()
+uk.smti.filter.Store:
+    public final synchronized void addLocalAllow()
+    public final synchronized void addRecent()
+    public static int allowedToday()
+    public final int blockedToday()
+    public static long blockedTotal()
+    public static boolean checkPin()
+    public final synchronized void countAllowed()
+    public final synchronized void countBlocked()
+    public final java.lang.String filterId()
+    public final boolean hasPin()
+    public static long lastAppsReport()
+    public static long lastSync()
+    public final java.lang.String message()
+    public final long pausedUntil()
+    public final java.lang.String server()
+    public static void setLastAppsReport()
+    public static void setLastSync()
+    public static void setMessage()
+    public final void setPausedUntil(long)
+    public static void setPin()
+    public final void setWanted(boolean)
+    public static long stoppedAt()
+    public static java.lang.String today()
+uk.smti.filter.Sync$Job:
+    public static synthetic void lambda$onStartJob$0()
+uk.smti.filter.Sync:
+    public static boolean batteryExempt(android.content.Context)
+    public static void now(android.content.Context,uk.smti.filter.Sync$Done)
+    public static java.lang.String versionName(android.content.Context)
+uk.smti.filter.Ui:
+    public static android.widget.LinearLayout$LayoutParams wideCenter(android.content.Context,int)

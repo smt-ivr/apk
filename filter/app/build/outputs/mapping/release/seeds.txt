@@ -1,0 +1,12 @@
+uk.smti.filter.BlockActivity
+uk.smti.filter.Sync$Job
+uk.smti.filter.AdminReceiver
+uk.smti.filter.MainActivity
+uk.smti.filter.FilterVpn
+uk.smti.filter.BootReceiver
+uk.smti.filter.BootReceiver: BootReceiver()
+uk.smti.filter.Sync$Job: Sync$Job()
+uk.smti.filter.BlockActivity: BlockActivity()
+uk.smti.filter.MainActivity: MainActivity()
+uk.smti.filter.AdminReceiver: AdminReceiver()
+uk.smti.filter.FilterVpn: FilterVpn()

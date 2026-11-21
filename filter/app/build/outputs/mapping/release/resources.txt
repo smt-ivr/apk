@@ -1,0 +1,53 @@
+Marking drawable:ic_shield:2130837512 reachable: referenced from /home/user/apk/filter/app/build/intermediates/dex/release/minifyReleaseWithR8/classes.dex
+Marking string:app_name:2130968576 reachable: referenced from /home/user/apk/filter/app/build/intermediates/dex/release/minifyReleaseWithR8/classes.dex
+Marking drawable:ic_lock:2130837509 reachable: referenced from /home/user/apk/filter/app/build/intermediates/dex/release/minifyReleaseWithR8/classes.dex
+Marking drawable:ic_block:2130837504 reachable: referenced from /home/user/apk/filter/app/build/intermediates/dex/release/minifyReleaseWithR8/classes.dex
+Marking drawable:ic_eye:2130837506 reachable: referenced from /home/user/apk/filter/app/build/intermediates/dex/release/minifyReleaseWithR8/classes.dex
+Marking drawable:ic_bolt:2130837505 reachable: referenced from /home/user/apk/filter/app/build/intermediates/dex/release/minifyReleaseWithR8/classes.dex
+Marking drawable:ic_star:2130837513 reachable: referenced from /home/user/apk/filter/app/build/intermediates/dex/release/minifyReleaseWithR8/classes.dex
+Marking drawable:ic_refresh:2130837511 reachable: referenced from /home/user/apk/filter/app/build/intermediates/dex/release/minifyReleaseWithR8/classes.dex
+Marking drawable:ic_key:2130837507 reachable: referenced from /home/user/apk/filter/app/build/intermediates/dex/release/minifyReleaseWithR8/classes.dex
+Marking drawable:ic_power:2130837510 reachable: referenced from /home/user/apk/filter/app/build/intermediates/dex/release/minifyReleaseWithR8/classes.dex
+Marking drawable:ic_trash:2130837514 reachable: referenced from /home/user/apk/filter/app/build/intermediates/dex/release/minifyReleaseWithR8/classes.dex
+@color/navy : reachable=false
+@color/primary : reachable=false
+@drawable/ic_block : reachable=true
+@drawable/ic_bolt : reachable=true
+@drawable/ic_eye : reachable=true
+@drawable/ic_key : reachable=true
+@drawable/ic_launcher_fg : reachable=false
+@drawable/ic_lock : reachable=true
+@drawable/ic_power : reachable=true
+@drawable/ic_refresh : reachable=true
+@drawable/ic_shield : reachable=true
+@drawable/ic_star : reachable=true
+@drawable/ic_trash : reachable=true
+@mipmap/ic_launcher : reachable=true
+    @color/primary
+    @drawable/ic_launcher_fg
+@string/app_name : reachable=true
+@style/AppTheme : reachable=true
+    @color/primary
+@style/BlockTheme : reachable=true
+    @color/navy
+@xml/device_admin : reachable=true
+
+The root reachable resources are:
+ drawable:ic_block:2130837504
+ drawable:ic_bolt:2130837505
+ drawable:ic_eye:2130837506
+ drawable:ic_key:2130837507
+ drawable:ic_lock:2130837509
+ drawable:ic_power:2130837510
+ drawable:ic_refresh:2130837511
+ drawable:ic_shield:2130837512
+ drawable:ic_star:2130837513
+ drawable:ic_trash:2130837514
+ mipmap:ic_launcher:2130903040
+ string:app_name:2130968576
+ style:AppTheme:2131034112
+ style:BlockTheme:2131034113
+ xml:device_admin:2131099648
+Unused resources are: 
+
+Resource shrinking did not work (grew from 10206 to 10454); using original instead

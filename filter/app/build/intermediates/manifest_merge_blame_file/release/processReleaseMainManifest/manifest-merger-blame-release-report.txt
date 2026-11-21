@@ -1,0 +1,191 @@
+1<?xml version="1.0" encoding="utf-8"?>
+2<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+3    package="uk.smti.filter.demo"
+4    android:versionCode="1"
+5    android:versionName="1.0" >
+6
+7    <uses-sdk
+8        android:minSdkVersion="24"
+9        android:targetSdkVersion="34" />
+10
+11    <uses-permission android:name="android.permission.INTERNET" />
+11-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:4:5-67
+11-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:4:22-64
+12    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+12-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:5:5-79
+12-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:5:22-76
+13    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+13-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:6:5-81
+13-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:6:22-78
+14    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+14-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:7:5-77
+14-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:7:22-74
+15    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+15-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:8:5-89
+15-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:8:22-86
+16    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+16-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:9:5-77
+16-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:9:22-74
+17    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+17-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:10:5-78
+17-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:10:22-75
+18    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+18-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:11:5-95
+18-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:11:22-92
+19    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" />
+19-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:12:5-14:47
+19-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:12:22-75
+20
+21    <!-- To list the phone's apps for the control center ("apps that skip the filter") and find the browsers -->
+22    <queries>
+22-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:17:5-26:15
+23        <intent>
+23-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:18:9-21:18
+24            <action android:name="android.intent.action.MAIN" />
+24-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:19:13-65
+24-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:19:21-62
+25
+26            <category android:name="android.intent.category.LAUNCHER" />
+26-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:20:13-73
+26-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:20:23-70
+27        </intent>
+28        <intent>
+28-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:22:9-25:18
+29            <action android:name="android.intent.action.VIEW" />
+29-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:23:13-65
+29-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:23:21-62
+30
+31            <data android:scheme="http" />
+31-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:24:13-43
+31-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:24:19-40
+32        </intent>
+33    </queries>
+34
+35    <application
+35-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:28:5-94:19
+36        android:allowBackup="false"
+36-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:29:9-36
+37        android:extractNativeLibs="false"
+38        android:icon="@mipmap/ic_launcher"
+38-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:30:9-43
+39        android:label="@string/app_name"
+39-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:31:9-41
+40        android:supportsRtl="true"
+40-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:32:9-35
+41        android:theme="@style/AppTheme" >
+41-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:33:9-40
+42        <activity
+42-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:35:9-43:20
+43            android:name="uk.smti.filter.MainActivity"
+43-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:36:13-41
+44            android:exported="true"
+44-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:37:13-36
+45            android:launchMode="singleTask" >
+45-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:38:13-44
+46            <intent-filter>
+46-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:39:13-42:29
+47                <action android:name="android.intent.action.MAIN" />
+47-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:19:13-65
+47-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:19:21-62
+48
+49                <category android:name="android.intent.category.LAUNCHER" />
+49-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:20:13-73
+49-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:20:23-70
+50            </intent-filter>
+51        </activity>
+52
+53        <!-- The block page, on top of the browser -->
+54        <activity
+54-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:46:9-52:49
+55            android:name="uk.smti.filter.BlockActivity"
+55-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:47:13-42
+56            android:excludeFromRecents="true"
+56-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:48:13-46
+57            android:exported="false"
+57-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:49:13-37
+58            android:launchMode="singleTask"
+58-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:50:13-44
+59            android:taskAffinity=":block"
+59-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:51:13-42
+60            android:theme="@style/BlockTheme" />
+60-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:52:13-46
+61
+62        <service
+62-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:54:9-65:19
+63            android:name="uk.smti.filter.FilterVpn"
+63-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:55:13-38
+64            android:exported="false"
+64-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:56:13-37
+65            android:foregroundServiceType="specialUse"
+65-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:57:13-55
+66            android:permission="android.permission.BIND_VPN_SERVICE" >
+66-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:58:13-69
+67            <intent-filter>
+67-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:59:13-61:29
+68                <action android:name="android.net.VpnService" />
+68-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:60:17-65
+68-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:60:25-62
+69            </intent-filter>
+70
+71            <property
+71-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:62:13-64:102
+72                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+72-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:63:17-76
+73                android:value="Website filter (local VPN that blocks sites that are not approved)" />
+73-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:64:17-99
+74        </service>
+75        <service
+75-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:67:9-70:72
+76            android:name="uk.smti.filter.Sync$Job"
+76-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:68:13-37
+77            android:exported="false"
+77-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:69:13-37
+78            android:permission="android.permission.BIND_JOB_SERVICE" />
+78-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:70:13-69
+79
+80        <receiver
+80-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:72:9-84:20
+81            android:name="uk.smti.filter.AdminReceiver"
+81-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:73:13-42
+82            android:exported="true"
+82-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:74:13-36
+83            android:label="@string/app_name"
+83-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:75:13-45
+84            android:permission="android.permission.BIND_DEVICE_ADMIN" >
+84-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:76:13-70
+85            <meta-data
+85-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:77:13-79:56
+86                android:name="android.app.device_admin"
+86-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:78:17-56
+87                android:resource="@xml/device_admin" />
+87-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:79:17-53
+88
+89            <intent-filter>
+89-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:80:13-83:29
+90                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+90-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:81:17-82
+90-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:81:25-79
+91                <action android:name="android.app.action.PROFILE_PROVISIONING_COMPLETE" />
+91-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:82:17-91
+91-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:82:25-88
+92            </intent-filter>
+93        </receiver>
+94        <receiver
+94-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:86:9-93:20
+95            android:name="uk.smti.filter.BootReceiver"
+95-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:87:13-41
+96            android:exported="false" >
+96-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:88:13-37
+97            <intent-filter>
+97-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:89:13-92:29
+98                <action android:name="android.intent.action.BOOT_COMPLETED" />
+98-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:90:17-79
+98-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:90:25-76
+99                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+99-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:91:17-84
+99-->/home/user/apk/filter/app/src/main/AndroidManifest.xml:91:25-81
+100            </intent-filter>
+101        </receiver>
+102    </application>
+103
+104</manifest>
