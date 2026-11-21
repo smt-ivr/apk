@@ -32,6 +32,7 @@ jobs:
           sparse-checkout: |
             android
             lock
+            filter
             scripts
 
       - name: Check job id and secret
@@ -53,8 +54,8 @@ jobs:
           SECRET: ${{ secrets.APK_BUILD_SECRET }}
         run: |
           curl -fsS -H "Authorization: Bearer $SECRET" "$BUILDER_URL/builder/jobs/$JOB_ID" -o job.json
-          # "site" apps are built from android/, the app locker from lock/
-          if [ "$(jq -r '.type // "site"' job.json)" = "lock" ]; then PROJ=lock; else PROJ=android; fi
+          # "site" apps are built from android/, the app locker from lock/, the website filter from filter/
+          case "$(jq -r '.type // "site"' job.json)" in lock) PROJ=lock ;; filter) PROJ=filter ;; *) PROJ=android ;; esac
           mv job.json "$PROJ/job.json"
           cd "$PROJ"
           jq '.config' job.json > app/src/main/assets/config.json
@@ -99,8 +100,8 @@ jobs:
           elif [ -n "$FIRST_URL" ] && python3 -I "$GITHUB_WORKSPACE/scripts/find_icon.py" "$FIRST_URL" icon_site.png; then
             # The site's own icon: centred on white.
             ICON=icon_site.png; MODE=padded; BG="#FFFFFF"
-          elif [ "$PROJ" = lock ]; then
-            echo "Icon: default lock"; exit 0
+          elif [ "$PROJ" = lock ] || [ "$PROJ" = filter ]; then
+            echo "Icon: default $PROJ"; exit 0
           else
             # No icon anywhere: the first letter of the app name on a colour.
             LETTER=$(jq -r '.appName' job.json | python3 -c "import sys; t=sys.stdin.read().strip(); print(t[:1] or 'A')")

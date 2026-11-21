@@ -1,0 +1,1 @@
+{ "type": "filter", "filterId": "", "server": "https://smti.uk/apk", "pinSalt": "", "pinHash": "", "rules": { "mode": "allow", "allow": ["smti.uk"] } }
