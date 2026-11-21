@@ -54,9 +54,44 @@ public final class Owner {
         return "adb shell dpm set-device-owner " + ctx.getPackageName() + "/" + AdminReceiver.class.getName();
     }
 
-    /** Makes this app the device owner with root (no computer needed). */
+    /**
+     * Makes this app the device owner with root (no computer needed).
+     * First tries the normal command. Android blocks it when accounts (Google etc.) are on the phone,
+     * even with root, so if that fails we register the admin and write the device-owner record directly,
+     * then a restart turns it on. The result's output starts with NEEDS-REBOOT in that case.
+     */
     public static Root.Result becomeOwnerWithRoot(Context ctx) {
-        return Root.run("dpm set-device-owner " + ctx.getPackageName() + "/" + AdminReceiver.class.getName());
+        String comp = ctx.getPackageName() + "/" + AdminReceiver.class.getName();
+        Root.Result plain = Root.run("dpm set-device-owner --user 0 " + comp + " 2>&1 || dpm set-device-owner " + comp + " 2>&1");
+        if (isOwner(ctx)) return new Root.Result(true, "OK");
+        String out = plain.out == null ? "" : plain.out;
+        boolean accounts = out.contains("account") || out.contains("Account") || out.contains("already set") || out.contains("not allowed") || out.contains("Not allowed");
+        if (!accounts && !out.isEmpty()) return plain; // a different failure: show it as is
+
+        // Account bypass: register the admin properly, then write the device-owner file the system reads at boot.
+        String pkg = ctx.getPackageName();
+        String xml = "<?xml version='1.0' encoding='utf-8' standalone='yes' ?>\n"
+                + "<root>\n"
+                + "<device-owner package=\"" + pkg + "\" name=\"\" component=\"" + comp + "\" userRestrictionsMigrated=\"true\" canAccessDeviceIds=\"true\" />\n"
+                + "<device-owner-context userId=\"0\" />\n"
+                + "</root>\n";
+        String script = "set -e\n"
+                + "dpm set-active-admin --user 0 " + comp + " 2>&1 || true\n"
+                + "F=/data/system/device_owner_2.xml\n"
+                + "cat > \"$F\" <<'XEOF'\n" + xml + "XEOF\n"
+                + "chmod 600 \"$F\"\n"
+                + "chown system:system \"$F\" 2>/dev/null || true\n"
+                + "restorecon \"$F\" 2>/dev/null || chcon u:object_r:system_data_file:s0 \"$F\" 2>/dev/null || true\n"
+                + "echo NEEDS-REBOOT\n";
+        Root.Result r = Root.run(script);
+        if (r.ok && r.out != null && r.out.contains("NEEDS-REBOOT")) return new Root.Result(true, "NEEDS-REBOOT");
+        // fall back to reporting whatever we have
+        return new Root.Result(false, (out.isEmpty() ? "" : out + "\n---\n") + (r.out == null ? "" : r.out));
+    }
+
+    public static String rootReboot(Context ctx) {
+        Root.Result r = Root.run("svc power reboot 2>/dev/null || setprop sys.powerctl reboot 2>/dev/null || reboot");
+        return r.ok ? "מפעיל מחדש" : "לא הצלחתי להפעיל מחדש אוטומטית, הפעילו ידנית";
     }
 
     // ------------------------------------------------------------------ policy

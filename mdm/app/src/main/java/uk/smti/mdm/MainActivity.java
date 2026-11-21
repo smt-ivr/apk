@@ -109,9 +109,12 @@ public class MainActivity extends Activity {
                     .setMessage("1. מאפסים את הטלפון להגדרות יצרן.\n2. במסך \"ברוכים הבאים\" נוגעים 6 פעמים באותו מקום.\n3. מתחברים ל-WiFi וסורקים את הברקוד שבמרכז השליטה.\n\nהאפליקציה מותקנת לבד כמנהלת המכשיר, ומצב הקיוסק נדלק מייד אם הוגדר.")
                     .setPositiveButton("הבנתי", null).show());
             set.addView(qr);
-            TextView note = Ui.text(this, "בהפעלה ברוט או ממחשב: אסור שיהיה חשבון (Google ועוד) מחובר לטלפון באותו רגע. אחרי ההפעלה אפשר להוסיף חשבונות.", 12.5f, Ui.TEXT3, false);
+            TextView note = Ui.text(this, "הפעלה ברוט עובדת גם כשיש חשבון Google מחובר — אם צריך, היא תבקש הפעלה מחדש. הפעלה ממחשב דורשת שלא יהיה חשבון מחובר באותו רגע.", 12.5f, Ui.TEXT3, false);
             note.setPadding(Ui.dp(this, 6), Ui.dp(this, 8), Ui.dp(this, 6), Ui.dp(this, 8));
             set.addView(note);
+            LinearLayout diag = Ui.row(this, R.drawable.ic_eye, Ui.SLATE, "שגיאות ופרטי מכשיר", "להעתקה ושליחה אם משהו נכשל", null);
+            diag.setOnClickListener(v -> showError("פרטי מכשיר", null));
+            set.addView(diag);
             body.addView(set);
         }
 
@@ -163,8 +166,8 @@ public class MainActivity extends Activity {
         act.addView(remove);
         body.addView(act);
 
-        TextView foot = Ui.text(this, "גרסה " + Info.versionName(this) + " · מזהה " + s.deviceId().substring(0, 6)
-                + (Root.present() ? " · רוט זמין" : ""), 12, Ui.TEXT3, false);
+        TextView foot = Ui.text(this, "גרסה " + Info.versionName(this) + " · אנדרואיד " + android.os.Build.VERSION.RELEASE
+                + " · מזהה " + s.deviceId().substring(0, 6) + (Root.present() ? " · רוט זמין" : ""), 12, Ui.TEXT3, false);
         foot.setGravity(Gravity.CENTER);
         body.addView(foot, Ui.wide(this, 18, 0));
     }
@@ -182,19 +185,69 @@ public class MainActivity extends Activity {
             Root.Result r = ok ? Owner.becomeOwnerWithRoot(this) : null;
             h.post(() -> {
                 if (!ok) {
-                    Toast.makeText(this, "לא התקבלה הרשאת רוט", Toast.LENGTH_LONG).show();
+                    showError("אין הרשאת רוט", "לא התקבלה הרשאת רוט מאפליקציית הרוט (Magisk / KernelSU וכו׳). אשרו את הבקשה ונסו שוב.");
                 } else if (Owner.isOwner(this)) {
                     Owner.apply(this);
                     Agent.kick(this);
                     Toast.makeText(this, "הניהול המלא הופעל ✓", Toast.LENGTH_LONG).show();
+                } else if (r.out != null && r.out.startsWith("NEEDS-REBOOT")) {
+                    // bypass prepared (accounts were present): needs a restart to take effect
+                    new AlertDialog.Builder(this)
+                            .setTitle("כמעט סיימנו — צריך הפעלה מחדש")
+                            .setMessage("יש חשבון מחובר בטלפון, אז הגדרנו את הניהול בדרך עוקפת (בלי למחוק חשבונות). ההפעלה תושלם אחרי הפעלה מחדש של הטלפון.")
+                            .setPositiveButton("הפעלה מחדש עכשיו", (d, w) -> new Thread(() -> {
+                                String m = Owner.rootReboot(this);
+                                h.post(() -> Toast.makeText(this, m, Toast.LENGTH_LONG).show());
+                            }).start())
+                            .setNegativeButton("אפעיל בעצמי", null)
+                            .show();
                 } else {
-                    new AlertDialog.Builder(this).setTitle("ההפעלה לא הצליחה").setMessage(r.out.isEmpty() ? "נסו שוב" :
-                            r.out + (r.out.contains("account") ? "\n\nצריך להסיר זמנית את החשבונות מהטלפון (הגדרות ← חשבונות) ולנסות שוב." : ""))
-                            .setPositiveButton("סגירה", null).show();
+                    showError("ההפעלה לא הצליחה", r.out == null || r.out.isEmpty() ? "לא התקבלה תשובה מהמערכת." : r.out);
                 }
                 render();
             });
         }).start();
+    }
+
+    /** Diagnostics the user can read and copy, with device details added automatically. */
+    private String diagnostics(String error) {
+        String accounts;
+        try {
+            android.accounts.Account[] a = android.accounts.AccountManager.get(this).getAccounts();
+            accounts = String.valueOf(a.length);
+        } catch (Throwable e) {
+            accounts = "לא ידוע";
+        }
+        return "אפליקציה: " + getString(R.string.app_name) + " · גרסה " + Info.versionName(this) + " (" + Info.versionCode(this) + ")\n"
+                + "אנדרואיד: " + android.os.Build.VERSION.RELEASE + " (SDK " + android.os.Build.VERSION.SDK_INT + ")\n"
+                + "מכשיר: " + android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL + "\n"
+                + "רוט: " + (Root.present() ? (Root.granted() ? "מאושר" : "קיים, לא אושר") : "לא נמצא") + "\n"
+                + "מנהל מכשיר: " + (Owner.isOwner(this) ? "כן" : "לא") + " · חשבונות בטלפון: " + accounts + "\n"
+                + "-----\n" + (error == null ? "" : error);
+    }
+
+    /** An error dialog whose full text (including device details) can be copied. */
+    private void showError(String title, String error) {
+        String full = diagnostics(error);
+        TextView tv = new TextView(this);
+        tv.setText(full);
+        tv.setTextIsSelectable(true);
+        tv.setTextSize(13);
+        tv.setTextColor(Ui.TEXT);
+        tv.setTypeface(android.graphics.Typeface.MONOSPACE);
+        int pad = Ui.dp(this, 18);
+        tv.setPadding(pad, Ui.dp(this, 8), pad, 0);
+        ScrollView sv = new ScrollView(this);
+        sv.addView(tv);
+        new AlertDialog.Builder(this)
+                .setTitle(title)
+                .setView(sv)
+                .setPositiveButton("העתקה", (d, w) -> {
+                    ((ClipboardManager) getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("שגיאה", full));
+                    Toast.makeText(this, "הועתק. אפשר להדביק ולשלוח.", Toast.LENGTH_SHORT).show();
+                })
+                .setNegativeButton("סגירה", null)
+                .show();
     }
 
     private void adbHelp() {

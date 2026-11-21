@@ -270,6 +270,7 @@ footer{text-align:center;color:var(--muted);font-size:13px;margin-top:20px}
           <a id="manageLink" href="#" target="_blank" rel="noopener"></a>
           <button type="button" class="btn" id="copyManage">העתקת הקישור</button>
           <p class="small" style="color:#d5deea;margin:10px 0 0"><b>שמרו את הקישור!</b> דרכו (יחד עם הסיסמה) מנהלים את המכשירים. אי אפשר לשחזר אותו. שם נמצא גם הברקוד להתקנה.</p>
+          <p class="small" style="color:#d5deea;margin:8px 0 0">זו אפליקציה אחת שלכם. <b>כל הטלפונים שמתקינים אותה מנוהלים מאותו מרכז שליטה</b> — אין צורך ליצור אפליקציה לכל טלפון. בונים שוב רק כדי לעדכן גרסה.</p>
         </div>
         <h3 style="margin:16px 0 4px">הפעלת הניהול בטלפון (פעם אחת)</h3>
         <ol class="steps-list small">
