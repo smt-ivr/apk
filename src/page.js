@@ -63,9 +63,9 @@ textarea{min-height:84px;resize:vertical}
 .tab b{display:block;font-size:16px}
 .tab span{display:block;font-size:13px;color:var(--muted);margin-top:2px}
 .tab[aria-selected=true]{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 18%,transparent)}
-body[data-type=site] .only-lock,body[data-type=site] .only-filter,body[data-type=site] .only-pin,
-body[data-type=lock] .only-site,body[data-type=lock] .only-filter,
-body[data-type=filter] .only-site,body[data-type=filter] .only-lock{display:none!important}
+body[data-type=site] .only-lock,body[data-type=site] .only-mdm,body[data-type=site] .only-pin,
+body[data-type=lock] .only-site,body[data-type=lock] .only-mdm,
+body[data-type=mdm] .only-site,body[data-type=mdm] .only-lock{display:none!important}
 .manage{background:linear-gradient(135deg,#0f1a2b,#17325c);color:#fff;border-radius:16px;padding:16px;text-align:right;margin:14px 0}
 .manage a{color:#bfd7ff;word-break:break-all;direction:ltr;display:block;text-align:left;font-size:13px;margin:6px 0 10px}
 .steps-list{text-align:right;margin:8px 0 0;padding-inline-start:20px}
@@ -104,7 +104,7 @@ footer{text-align:center;color:var(--muted);font-size:13px;margin-top:20px}
   <div class="tabs" role="tablist">
     <button type="button" class="tab" role="tab" data-type="site" aria-selected="true"><b>אפליקציה מאתר</b><span>מציגה רק את האתרים שתבחר</span></button>
     <button type="button" class="tab" role="tab" data-type="lock" aria-selected="false"><b>נעילת אפליקציות</b><span>נעילה וחסימה של אפליקציות בטלפון</span></button>
-    <button type="button" class="tab" role="tab" data-type="filter" aria-selected="false"><b>סינון אתרים</b><span>רק אתרים שאתם מאשרים</span></button>
+    <button type="button" class="tab" role="tab" data-type="mdm" aria-selected="false"><b>ניהול מכשירים</b><span>קיוסק ושליטה מלאה מרחוק</span></button>
   </div>
 
   <div class="updating" id="updating" hidden>
@@ -136,7 +136,7 @@ footer{text-align:center;color:var(--muted);font-size:13px;margin-top:20px}
           <button type="button" class="btn" id="iconClear" hidden>הסרה</button>
           <p class="small only-site" style="margin:6px 0 0">בלי תמונה ננסה לקחת את הסמל של האתר הראשון.</p>
           <p class="small only-lock" style="margin:6px 0 0">בלי תמונה יופיע סמל של מנעול.</p>
-          <p class="small only-filter" style="margin:6px 0 0">בלי תמונה יופיע סמל של מגן.</p>
+          <p class="small only-mdm" style="margin:6px 0 0">בלי תמונה יופיע סמל של מגן.</p>
         </div>
       </div>
     </div>
@@ -144,7 +144,7 @@ footer{text-align:center;color:var(--muted);font-size:13px;margin-top:20px}
     <div class="card only-pin">
       <h2>הקוד</h2>
       <p class="hint only-lock">הקוד נדרש כדי לפתוח אפליקציות נעולות, לשנות הגדרות ולהסיר את האפליקציה. <b>שמרו אותו במקום בטוח</b>: בלי הקוד אי אפשר להסיר את ההגנה.</p>
-      <p class="hint only-filter">הקוד נדרש בטלפון כדי לכבות או להשהות את הסינון ולהסיר את האפליקציה. אפשר להחליף אותו אחר כך ממרכז השליטה. <b>שמרו אותו במקום בטוח</b>.</p>
+      <p class="hint only-mdm">הקוד נדרש בטלפון ליציאה מהקיוסק ולהסרה מלאה של האפליקציה וההגבלות. עובד תמיד, גם בלי אינטרנט. אפשר להחליף אותו ממרכז השליטה.</p>
       <div class="grid2">
         <div>
           <label class="f" for="lockPin">קוד</label>
@@ -168,27 +168,29 @@ footer{text-align:center;color:var(--muted);font-size:13px;margin-top:20px}
       </ul>
     </div>
 
-    <div class="card only-filter">
-      <h2>אתרים מאושרים</h2>
-      <p class="hint">רק האתרים האלה (וכל תתי-האתרים שלהם) ייפתחו בטלפון. כתובת בכל שורה. אפשר להוסיף ולשנות בכל רגע ממרכז השליטה, בלי לבנות מחדש.</p>
-      <textarea id="fAllow" class="ltr" placeholder="smti.uk&#10;gov.il&#10;example.com" style="min-height:120px"></textarea>
-      <label class="f" for="fMode">סוג הסינון</label>
-      <select id="fMode">
-        <option value="allow">רק אתרים מאושרים (מומלץ)</option>
-        <option value="block">הכל פתוח חוץ מרשימת חסימה</option>
-      </select>
-      <label class="f" for="fMsg">הודעה בדף החסימה <span class="small">(לא חובה)</span></label>
-      <input type="text" id="fMsg" maxlength="300" placeholder="הגלישה במכשיר הזה מוגבלת לאתרים מאושרים…">
+    <div class="card only-mdm">
+      <h2>אתר הניהול</h2>
+      <p class="hint">סיסמה לכניסה למרכז השליטה (בנוסף לקישור הסודי). ריק = אותו קוד כמו בטלפון.</p>
+      <input type="password" id="mPass" autocomplete="new-password" placeholder="לפחות 4 תווים">
+      <label class="check"><input type="checkbox" id="mKiosk"> <span><b>להפעיל קיוסק מייד בהתקנה</b>: הטלפון ננעל לאפליקציות שתבחרו (אפשר לשנות בכל רגע ממרכז השליטה).</span></label>
+      <div id="mKioskBox" hidden>
+        <label class="f" for="mApps">אפליקציות בקיוסק <span class="small">(שמות חבילה, שורה לכל אחת)</span></label>
+        <textarea id="mApps" class="ltr" placeholder="com.android.chrome&#10;com.whatsapp"></textarea>
+        <label class="f" for="mTitle">כותרת במסך הקיוסק <span class="small">(לא חובה)</span></label>
+        <input type="text" id="mTitle" maxlength="60">
+      </div>
     </div>
 
-    <div class="card only-filter">
+    <div class="card only-mdm">
       <h2>מה מקבלים</h2>
       <ul class="steps-list small">
-        <li><b>סינון לכל הטלפון</b>: כל הדפדפנים וכל האפליקציות, דרך VPN שרץ בתוך הטלפון (בלי שרת חיצוני, בלי האטה).</li>
-        <li><b>דף חסימה מעוצב</b> שקופץ מעל הדפדפן, עם כפתור <b>"בקשת אישור לאתר"</b>.</li>
-        <li><b>מרכז שליטה אישי</b>: הוספת אתרים, אישור בקשות בלחיצה, חבילות מוכנות (WhatsApp, בנקים, Gmail ועוד), שעות גלישה, השהיה מרחוק, חסימת חירום, אפליקציות בלי סינון, הודעה לטלפונים והחלפת קוד.</li>
-        <li><b>מעקב מכשירים</b>: רואים אם הסינון פעיל בכל טלפון, מה נחסם, ומקבלים התראה אם מישהו כיבה אותו.</li>
-        <li><b>הגנות</b>: חסימת "DNS מאובטח" שעוקף סינון, הגנה מהסרה, הפעלה מחדש אוטומטית, VPN תמידי, ומצב חזק שבו אי אפשר לכבות או להסיר בכלל.</li>
+        <li><b>קיוסק</b>: נעילה לאפליקציה אחת או לכמה, מסך בית משלכם, נדלק מייד בהתקנה. יציאה תמיד אפשרית עם הקוד.</li>
+        <li><b>הגבלות</b>: איפוס, מצב בטוח, התקנה והסרה של אפליקציות, חשבונות, WiFi, בלוטות׳, USB, מצלמה, צילומי מסך, שיחות, SMS ועוד כ-40.</li>
+        <li><b>אפליקציות</b>: הסתרה, השבתה, הגנה מהסרה, פתיחה, התקנה שקטה מקישור, הסרה ומחיקת נתונים.</li>
+        <li><b>פקודות מרחוק</b>: נעילה, צלצול לאיתור, הודעה על המסך, מיקום, הפעלה מחדש, עדכון האפליקציה, ופקודות רוט.</li>
+        <li><b>הסרה מלאה</b>: מהטלפון עם הקוד, או מרחוק. כל ההגבלות משתחררות (עם רוט: בשקט לגמרי).</li>
+        <li><b>עדכונים</b>: בונים גרסה חדשה עם אותו שם, והטלפונים מתעדכנים לבד.</li>
+        <li>התקנה בברקוד (בטלפון אחרי איפוס), בלחיצה עם רוט, או בפקודה ממחשב.</li>
       </ul>
     </div>
 
@@ -264,22 +266,19 @@ footer{text-align:center;color:var(--muted);font-size:13px;margin-top:20px}
       </div>
       <div id="filterSteps" hidden style="text-align:right">
         <div class="manage">
-          <b>🛡️ מרכז השליטה של הסינון</b>
+          <b>🛡️ מרכז השליטה</b>
           <a id="manageLink" href="#" target="_blank" rel="noopener"></a>
           <button type="button" class="btn" id="copyManage">העתקת הקישור</button>
-          <p class="small" style="color:#d5deea;margin:10px 0 0"><b>שמרו את הקישור!</b> דרכו מנהלים את האתרים, הבקשות והמכשירים. אי אפשר לשחזר אותו.</p>
+          <p class="small" style="color:#d5deea;margin:10px 0 0"><b>שמרו את הקישור!</b> דרכו (יחד עם הסיסמה) מנהלים את המכשירים. אי אפשר לשחזר אותו. שם נמצא גם הברקוד להתקנה.</p>
         </div>
-        <h3 style="margin:16px 0 4px">אחרי ההתקנה בטלפון</h3>
+        <h3 style="margin:16px 0 4px">הפעלת הניהול בטלפון (פעם אחת)</h3>
         <ol class="steps-list small">
-          <li>פותחים את האפליקציה ומאשרים את ה-VPN. הסינון מתחיל לפעול מייד.</li>
-          <li>ברשימת "הגנות" לוחצים על כל שורה שמסומנת "לתיקון": דף חסימה מעל הדפדפן, דף חסימה חכם, הגנה מהסרה ופעולה ברקע.</li>
-          <li><b>VPN תמידי</b> (מומלץ מאוד): הגדרות ← VPN ← ⚙️ ליד הסינון ← "VPN תמידי" + "חסימת חיבורים ללא VPN".</li>
+          <li><b>ברקוד</b> (טלפון חדש או אחרי איפוס): במסך "ברוכים הבאים" נוגעים 6 פעמים, מתחברים ל-WiFi וסורקים את הברקוד שבמרכז השליטה.</li>
+          <li><b>רוט</b>: מתקינים, פותחים ולוחצים "הפעלה עם רוט".</li>
+          <li><b>מחשב</b>: מסירים זמנית את החשבונות, מפעילים ניפוי באגים ב-USB ומריצים:</li>
         </ol>
-        <details style="margin-top:10px">
-          <summary>מצב חזק (לא חובה, דורש מחשב)</summary>
-          <p class="small">אי אפשר לכבות את הסינון, להסיר את האפליקציה, לשנות VPN או להיכנס למצב בטוח. עובד בטלפון בלי חשבונות (בדרך כלל אחרי איפוס): מפעילים "ניפוי באגים ב-USB", מחברים למחשב עם ADB ומריצים:</p>
-          <code class="cmd" id="filterAdb"></code>
-        </details>
+        <code class="cmd" id="filterAdb"></code>
+        <p class="small">להסרה: באפליקציה ← "הסרה מלאה" עם הקוד, או ממרכז השליטה.</p>
       </div>
       <details>
         <summary>איך מתקינים?</summary>
@@ -314,10 +313,10 @@ footer{text-align:center;color:var(--muted);font-size:13px;margin-top:20px}
   // ---------- app type ----------
   let type = "site";
   function setType(t) {
-    type = t === "lock" || t === "filter" ? t : "site";
+    type = t === "lock" || t === "mdm" ? t : "site";
     document.body.dataset.type = type;
     document.querySelectorAll(".tab").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.type === type)));
-    $("appName").placeholder = type === "lock" ? "למשל: נעילה" : type === "filter" ? "למשל: סינון הבית" : "למשל: שיעורי תורה";
+    $("appName").placeholder = type === "lock" ? "למשל: נעילה" : type === "mdm" ? "למשל: הטלפון של הבית" : "למשל: שיעורי תורה";
     showErr("");
   }
   document.querySelectorAll(".tab").forEach((b) => (b.onclick = () => setType(b.dataset.type)));
@@ -430,16 +429,18 @@ footer{text-align:center;color:var(--muted);font-size:13px;margin-top:20px}
     const appName = $("appName").value.trim();
     if (!appName) { $("appName").focus(); return showErr("נא להזין שם לאפליקציה"); }
 
-    if (type === "lock" || type === "filter") {
+    if (type === "lock" || type === "mdm") {
       const p1 = $("lockPin").value.trim();
       if (!(updateOf && !p1)) {
         if (!/^\\d{4,8}$/.test(p1)) { $("lockPin").focus(); return showErr("הקוד צריך להיות 4 עד 8 ספרות"); }
         if (p1 !== $("lockPin2").value.trim()) { $("lockPin2").focus(); return showErr("הקודים לא תואמים"); }
       }
-      if (type === "filter") {
-        const allow = $("fAllow").value.split(/[\s,]+/).map((x) => x.trim()).filter(Boolean);
-        for (const d of allow) if (!looksLikeUrl(d)) return showErr('הכתובת "' + d + '" לא תקינה');
-        return send({ type: "filter", appName, pin: p1, icon: iconData, updateOf, allow, mode: $("fMode").value, blockMessage: $("fMsg").value.trim() });
+      if (type === "mdm") {
+        const sp = $("mPass").value;
+        if (sp && sp.length < 4) { $("mPass").focus(); return showErr("סיסמת אתר הניהול: לפחות 4 תווים"); }
+        const kioskApps = $("mApps").value.split(/[\\s,]+/).map((x) => x.trim()).filter(Boolean);
+        if ($("mKiosk").checked && !kioskApps.length) return showErr("לקיוסק צריך לפחות אפליקציה אחת");
+        return send({ type: "mdm", appName, pin: p1, icon: iconData, updateOf, sitePassword: sp, kiosk: $("mKiosk").checked, kioskApps, kioskTitle: $("mTitle").value.trim() });
       }
       return send({ type: "lock", appName, pin: p1, icon: iconData, updateOf });
     }
@@ -514,7 +515,7 @@ footer{text-align:center;color:var(--muted);font-size:13px;margin-top:20px}
           $("doneInfo").textContent = "גרסה " + d.version + " · " + Math.max(1, Math.round(d.size / 1024)) + " KB";
           $("dl").href = d.download;
           $("lockSteps").hidden = d.type !== "lock";
-          $("filterSteps").hidden = d.type !== "filter";
+          $("filterSteps").hidden = d.type !== "mdm";
           if (d.manage) { $("manageLink").href = d.manage; $("manageLink").textContent = d.manage; $("filterAdb").textContent = d.adb || ""; }
           if (d.adb) $("adbCmd").textContent = d.adb;
           return;
@@ -534,6 +535,7 @@ footer{text-align:center;color:var(--muted);font-size:13px;margin-top:20px}
     };
     poll();
   }
+  $("mKiosk").onchange = () => { $("mKioskBox").hidden = !$("mKiosk").checked; };
   $("copyManage").onclick = () => navigator.clipboard.writeText($("manageLink").href).then(() => { $("copyManage").textContent = "הועתק ✓"; });
   $("again").onclick = () => { clearTimeout(timer); store.set("apkJob", null); setUpdating(null); view(null); };
 

@@ -1,6 +1,6 @@
 import { renderPage } from "./page.js";
-import { renderFilterPage } from "./filterPage.js";
-import { filterRoute, createFilter, filterRules, cleanDomain, pinHashSlow } from "./filter.js";
+import { renderMdmPage } from "./mdmPage.js";
+import { mdmRoute, createMdm, mdmPolicy, pinHashSlow } from "./mdm.js";
 
 const BASE = "/apk";
 const CHUNK = 60_000; // characters of base64 per D1 row (D1 statements are limited to ~100KB)
@@ -135,8 +135,8 @@ async function createBuild(request, env) {
 
   const appName = cleanText(body.appName, 40);
   if (!appName) return fail("נא להזין שם לאפליקציה");
-  // "site": an app that shows websites. "lock": locks other apps. "filter": a website filter (local VPN).
-  const type = body.type === "lock" ? "lock" : body.type === "filter" ? "filter" : "site";
+  // "site": an app that shows websites. "lock": locks other apps. "mdm": remote device management (kiosk etc.).
+  const type = body.type === "lock" ? "lock" : body.type === "mdm" ? "mdm" : "site";
 
   const sites = [];
   for (const s of Array.isArray(body.sites) ? body.sites.slice(0, MAX_SITES) : []) {
@@ -170,7 +170,9 @@ async function createBuild(request, env) {
   const prevConfig = prevJob ? JSON.parse(prevJob.config) : {};
 
   const pin = String(body.pin ?? "").trim();
-  if ((type === "lock" || type === "filter") && !pin && !prevConfig.pinHash) return fail("נא לבחור קוד");
+  if ((type === "lock" || type === "mdm") && !pin && !prevConfig.pinHash) return fail("נא לבחור קוד");
+  const sitePass = String(body.sitePassword ?? "");
+  if (type === "mdm" && !prevConfig.appKey && sitePass && sitePass.length < 4) return fail("סיסמת אתר הניהול: 4 תווים לפחות");
   if (pin && !/^\d{4,8}$/.test(pin)) return fail("הקוד צריך להיות 4 עד 8 ספרות");
   let pinSalt = pin ? randomHex(16) : "";
   let pinHash = pin ? await sha256Hex(pinSalt + pin) : "";
@@ -196,17 +198,20 @@ async function createBuild(request, env) {
   if (type === "lock") {
     appId = "uk.smti.lock.a" + (await sha256Hex("lock|" + appName)).slice(0, 12);
     config = { type, pinSalt, pinHash };
-  } else if (type === "filter") {
-    appId = "uk.smti.filter.a" + (await sha256Hex("filter|" + appName)).slice(0, 12);
+  } else if (type === "mdm") {
+    appId = "uk.smti.mdm.a" + (await sha256Hex("mdm|" + appName)).slice(0, 12);
     const server = new URL(request.url).origin.replace(/^http:/, "https:") + BASE;
     if (pin) pinHash = await pinHashSlow(pinSalt, pin);
-    if (prevConfig.filterId) {
-      // an update keeps the same control page, devices and rules
-      config = { type, filterId: prevConfig.filterId, filterKey: prevConfig.filterKey, server, pinSalt, pinHash, pinAlgo: pin ? "p1" : prevConfig.pinAlgo };
+    if (prevConfig.appKey) {
+      // an update keeps the same control page, devices and policy
+      config = { type, appKey: prevConfig.appKey, manageKey: prevConfig.manageKey, server, pinSalt, pinHash, pinAlgo: pin ? "p1" : prevConfig.pinAlgo };
     } else {
-      const allow = (Array.isArray(body.allow) ? body.allow : []).map(cleanDomain).filter(Boolean).slice(0, 500);
-      const f = await createFilter(env, appName, { mode: body.mode === "block" ? "block" : "allow", allow, block: [], blockMessage: cleanText(body.blockMessage, 300) });
-      config = { type, filterId: f.id, filterKey: f.key, server, pinSalt, pinHash, pinAlgo: "p1" };
+      const kioskApps = (Array.isArray(body.kioskApps) ? body.kioskApps : []).map((x) => cleanText(x, 150)).filter((x) => /^[a-zA-Z0-9_.]+$/.test(x)).slice(0, 30);
+      const m = await createMdm(env, appName, {
+        kiosk: { enabled: !!body.kiosk && kioskApps.length > 0, apps: kioskApps, title: cleanText(body.kioskTitle, 60) },
+        pinSalt, pinHash, pinAlgo: "p1",
+      }, sitePass || pin);
+      config = { type, appKey: m.id, manageKey: m.key, server, pinSalt, pinHash, pinAlgo: "p1" };
     }
   } else {
     const firstHost = new URL(sites[0].url).hostname.replace(/^www\./, "");
@@ -221,9 +226,12 @@ async function createBuild(request, env) {
   // Housekeeping and limits.
   const old = now - KEEP_DAYS * 86400_000;
   const veryOld = now - KEEP_SETTINGS_DAYS * 86400_000;
+  // The newest build of each device-management app is kept: managed phones update from it and the QR code uses it.
+  const keepLatest = `AND id NOT IN (SELECT j.id FROM apk_jobs j WHERE j.status = 'done' AND j.config LIKE '%"type":"mdm"%'
+      AND j.created_at = (SELECT MAX(k.created_at) FROM apk_jobs k WHERE k.app_id = j.app_id AND k.status = 'done'))`;
   await env.DB.batch([
-    env.DB.prepare(`DELETE FROM apk_chunks WHERE job_id IN (SELECT id FROM apk_jobs WHERE created_at < ? AND chunks > 0)`).bind(old),
-    env.DB.prepare(`UPDATE apk_jobs SET chunks = 0, icon = '' WHERE created_at < ? AND chunks > 0`).bind(old),
+    env.DB.prepare(`DELETE FROM apk_chunks WHERE job_id IN (SELECT id FROM apk_jobs WHERE created_at < ? AND chunks > 0 ${keepLatest})`).bind(old),
+    env.DB.prepare(`UPDATE apk_jobs SET chunks = 0, icon = '' WHERE created_at < ? AND chunks > 0 ${keepLatest}`).bind(old),
     env.DB.prepare(`DELETE FROM apk_jobs WHERE created_at < ?`).bind(veryOld),
   ]);
   const counts = await env.DB.prepare(
@@ -281,7 +289,7 @@ function versionNameOf(job) {
 function jobType(job) {
   try {
     const t = JSON.parse(job.config).type;
-    return t === "lock" || t === "filter" ? t : "site";
+    return t === "lock" || t === "mdm" ? t : "site";
   } catch {
     return "site";
   }
@@ -290,7 +298,7 @@ function jobType(job) {
 function manageUrl(origin, job) {
   try {
     const c = JSON.parse(job.config);
-    return c.type === "filter" && c.filterId ? `${origin.replace(/^http:/, "https:")}${BASE}/filter/${c.filterId}#k=${c.filterKey}` : null;
+    return c.type === "mdm" && c.appKey ? `${origin.replace(/^http:/, "https:")}${BASE}/mdm/${c.appKey}#k=${c.manageKey}` : null;
   } catch {
     return null;
   }
@@ -329,8 +337,8 @@ async function jobStatus(env, id, origin) {
     type: jobType(job),
     // For the lock app: the one-time computer command that switches on strong mode.
     adb: jobType(job) === "lock" ? `adb shell dpm set-device-owner ${job.app_id}/uk.smti.lock.AdminReceiver`
-      : jobType(job) === "filter" ? `adb shell dpm set-device-owner ${job.app_id}/uk.smti.filter.AdminReceiver` : null,
-    // For the filter: the private control page (only whoever built the app has this job id).
+      : jobType(job) === "mdm" ? `adb shell dpm set-device-owner ${job.app_id}/uk.smti.mdm.AdminReceiver` : null,
+    // For device management: the private control page (only whoever built the app has this job id).
     manage: manageUrl(origin, job),
   });
 }
@@ -364,7 +372,7 @@ async function jobSettings(env, id) {
   const c = JSON.parse(job.config);
   return json({
     ok: true,
-    type: c.type === "lock" || c.type === "filter" ? c.type : "site",
+    type: c.type === "lock" || c.type === "mdm" ? c.type : "site",
     appName: job.app_name,
     appId: job.app_id,
     sites: c.sites || [],
@@ -384,17 +392,17 @@ async function builderConfig(env, id) {
   if (!job) return fail("not found", 404);
   if (job.status === "queued") await setStatus(env, id, "building");
   const config = JSON.parse(job.config);
-  if (config.type === "filter") {
-    // the phone gets its first rules inside the app; the owner key never goes into the app
-    config.rules = (await filterRules(env, config.filterId)) || {};
-    delete config.filterKey;
+  if (config.type === "mdm") {
+    // the phone gets its first policy inside the app (kiosk can start at once); the owner key never goes into the app
+    config.policy = (await mdmPolicy(env, config.appKey)) || {};
+    delete config.manageKey;
   }
   return json({
     appName: job.app_name,
     appId: job.app_id,
     versionCode: job.version_code,
     versionName: versionNameOf(job),
-    type: config.type === "lock" || config.type === "filter" ? config.type : "site",
+    type: config.type === "lock" || config.type === "mdm" ? config.type : "site",
     firstHost: config.sites && config.sites.length ? new URL(config.sites[0].url).hostname : "",
     firstUrl: config.sites && config.sites.length ? config.sites[0].url : "",
     icon: job.icon || "",
@@ -449,6 +457,49 @@ async function keystorePut(request, env) {
   return keystoreGet(env);
 }
 
+// ---------------------------------------------------------------- device management: latest build and QR setup
+
+/** The newest finished build of a device-management app (for remote updates and the QR code). */
+async function latestMdmBuild(env, mdmId) {
+  await ensureSchema(env);
+  return env.DB.prepare(
+    `SELECT id, app_id, version_code, config, created_at FROM apk_jobs WHERE status = 'done' AND chunks > 0 AND config LIKE ? ORDER BY created_at DESC LIMIT 1`
+  ).bind('%"appKey":"' + mdmId + '"%').first();
+}
+
+function mdmHooks(env, origin) {
+  const base = origin.replace(/^http:/, "https:") + BASE;
+  return {
+    latest: async (mdmId) => {
+      const j = await latestMdmBuild(env, mdmId);
+      return j ? { versionCode: j.version_code, version: versionNameOf(j), url: `${base}/download/${j.id}`, builtAt: j.created_at } : null;
+    },
+    provisioning: async (mdmId) => {
+      const j = await latestMdmBuild(env, mdmId);
+      const cert = await env.DB.prepare(`SELECT v FROM apk_meta WHERE k = 'cert_sha256'`).first();
+      if (!j || !cert) return null;
+      return {
+        "android.app.extra.PROVISIONING_DEVICE_ADMIN_COMPONENT_NAME": `${j.app_id}/uk.smti.mdm.AdminReceiver`,
+        "android.app.extra.PROVISIONING_DEVICE_ADMIN_PACKAGE_DOWNLOAD_LOCATION": `${base}/download/${j.id}`,
+        "android.app.extra.PROVISIONING_DEVICE_ADMIN_SIGNATURE_CHECKSUM": cert.v,
+        "android.app.extra.PROVISIONING_LEAVE_ALL_SYSTEM_APPS_ENABLED": true,
+        "android.app.extra.PROVISIONING_SKIP_ENCRYPTION": true,
+        expiresAt: j.created_at + KEEP_DAYS * 86400_000,
+      };
+    },
+  };
+}
+
+/** The signing certificate's SHA-256 (the same key signs every app), needed by the QR setup. */
+async function certPut(request, env) {
+  await ensureSchema(env);
+  const b = await request.json().catch(() => ({}));
+  const v = String(b.sha256 || "");
+  if (!/^[A-Za-z0-9_-]{40,50}$/.test(v)) return fail("bad checksum");
+  await env.DB.prepare(`INSERT INTO apk_meta (k, v) VALUES ('cert_sha256', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v`).bind(v).run();
+  return json({ ok: true });
+}
+
 // ---------------------------------------------------------------- router
 
 export default {
@@ -466,14 +517,14 @@ export default {
         });
       }
       if (path === "/api/build" && method === "POST") return await createBuild(request, env);
-      if (/^\/filter\/[a-f0-9]{24}$/.test(path) && method === "GET") {
-        return new Response(renderFilterPage(), {
+      if (/^\/mdm\/[a-f0-9]{24}$/.test(path) && method === "GET") {
+        return new Response(renderMdmPage(), {
           headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache", "referrer-policy": "no-referrer", "x-robots-tag": "noindex" },
         });
       }
-      if (path.startsWith("/api/filter/")) {
-        const fr = await filterRoute(request, env, path);
-        if (fr) return fr;
+      if (path.startsWith("/api/mdm/")) {
+        const r = await mdmRoute(request, env, path, mdmHooks(env, url.origin));
+        if (r) return r;
       }
 
       let m;
@@ -495,6 +546,7 @@ export default {
         if ((m = /^\/builder\/jobs\/([a-f0-9]{24})\/apk$/.exec(path)) && method === "PUT") return await builderUpload(request, env, m[1]);
         if (path === "/builder/keystore" && method === "GET") return await keystoreGet(env);
         if (path === "/builder/keystore" && method === "PUT") return await keystorePut(request, env);
+        if (path === "/builder/cert" && method === "PUT") return await certPut(request, env);
       }
 
       return new Response("Not found", { status: 404 });
