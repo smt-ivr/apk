@@ -1,6 +1,0 @@
--keep class uk.smti.filter.AdminReceiver { <init>(); }
--keep class uk.smti.filter.BlockActivity { <init>(); }
--keep class uk.smti.filter.BootReceiver { <init>(); }
--keep class uk.smti.filter.FilterVpn { <init>(); }
--keep class uk.smti.filter.MainActivity { <init>(); }
--keep class uk.smti.filter.Sync$Job { <init>(); }
