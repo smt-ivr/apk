@@ -1,4 +1,6 @@
 import { renderPage } from "./page.js";
+import { renderFilterPage } from "./filterPage.js";
+import { filterRoute, createFilter, filterRules, cleanDomain, pinHashSlow } from "./filter.js";
 
 const BASE = "/apk";
 const CHUNK = 60_000; // characters of base64 per D1 row (D1 statements are limited to ~100KB)
@@ -133,8 +135,8 @@ async function createBuild(request, env) {
 
   const appName = cleanText(body.appName, 40);
   if (!appName) return fail("נא להזין שם לאפליקציה");
-  // "site": an app that shows websites. "lock": an app that locks other apps on the phone.
-  const type = body.type === "lock" ? "lock" : "site";
+  // "site": an app that shows websites. "lock": locks other apps. "filter": a website filter (local VPN).
+  const type = body.type === "lock" ? "lock" : body.type === "filter" ? "filter" : "site";
 
   const sites = [];
   for (const s of Array.isArray(body.sites) ? body.sites.slice(0, MAX_SITES) : []) {
@@ -168,7 +170,7 @@ async function createBuild(request, env) {
   const prevConfig = prevJob ? JSON.parse(prevJob.config) : {};
 
   const pin = String(body.pin ?? "").trim();
-  if (type === "lock" && !pin && !prevConfig.pinHash) return fail("נא לבחור קוד");
+  if ((type === "lock" || type === "filter") && !pin && !prevConfig.pinHash) return fail("נא לבחור קוד");
   if (pin && !/^\d{4,8}$/.test(pin)) return fail("הקוד צריך להיות 4 עד 8 ספרות");
   let pinSalt = pin ? randomHex(16) : "";
   let pinHash = pin ? await sha256Hex(pinSalt + pin) : "";
@@ -194,6 +196,18 @@ async function createBuild(request, env) {
   if (type === "lock") {
     appId = "uk.smti.lock.a" + (await sha256Hex("lock|" + appName)).slice(0, 12);
     config = { type, pinSalt, pinHash };
+  } else if (type === "filter") {
+    appId = "uk.smti.filter.a" + (await sha256Hex("filter|" + appName)).slice(0, 12);
+    const server = new URL(request.url).origin.replace(/^http:/, "https:") + BASE;
+    if (pin) pinHash = await pinHashSlow(pinSalt, pin);
+    if (prevConfig.filterId) {
+      // an update keeps the same control page, devices and rules
+      config = { type, filterId: prevConfig.filterId, filterKey: prevConfig.filterKey, server, pinSalt, pinHash, pinAlgo: pin ? "p1" : prevConfig.pinAlgo };
+    } else {
+      const allow = (Array.isArray(body.allow) ? body.allow : []).map(cleanDomain).filter(Boolean).slice(0, 500);
+      const f = await createFilter(env, appName, { mode: body.mode === "block" ? "block" : "allow", allow, block: [], blockMessage: cleanText(body.blockMessage, 300) });
+      config = { type, filterId: f.id, filterKey: f.key, server, pinSalt, pinHash, pinAlgo: "p1" };
+    }
   } else {
     const firstHost = new URL(sites[0].url).hostname.replace(/^www\./, "");
     appId = "uk.smti.app.a" + (await sha256Hex(firstHost + "|" + appName)).slice(0, 12);
@@ -266,9 +280,19 @@ function versionNameOf(job) {
 
 function jobType(job) {
   try {
-    return JSON.parse(job.config).type === "lock" ? "lock" : "site";
+    const t = JSON.parse(job.config).type;
+    return t === "lock" || t === "filter" ? t : "site";
   } catch {
     return "site";
+  }
+}
+
+function manageUrl(origin, job) {
+  try {
+    const c = JSON.parse(job.config);
+    return c.type === "filter" && c.filterId ? `${origin.replace(/^http:/, "https:")}${BASE}/filter/${c.filterId}#k=${c.filterKey}` : null;
+  } catch {
+    return null;
   }
 }
 
@@ -304,7 +328,10 @@ async function jobStatus(env, id, origin) {
     download: job.status === "done" && Date.now() - job.created_at < KEEP_DAYS * 86400_000 ? `${origin}${BASE}/download/${job.id}` : null,
     type: jobType(job),
     // For the lock app: the one-time computer command that switches on strong mode.
-    adb: jobType(job) === "lock" ? `adb shell dpm set-device-owner ${job.app_id}/uk.smti.lock.AdminReceiver` : null,
+    adb: jobType(job) === "lock" ? `adb shell dpm set-device-owner ${job.app_id}/uk.smti.lock.AdminReceiver`
+      : jobType(job) === "filter" ? `adb shell dpm set-device-owner ${job.app_id}/uk.smti.filter.AdminReceiver` : null,
+    // For the filter: the private control page (only whoever built the app has this job id).
+    manage: manageUrl(origin, job),
   });
 }
 
@@ -337,7 +364,7 @@ async function jobSettings(env, id) {
   const c = JSON.parse(job.config);
   return json({
     ok: true,
-    type: c.type === "lock" ? "lock" : "site",
+    type: c.type === "lock" || c.type === "filter" ? c.type : "site",
     appName: job.app_name,
     appId: job.app_id,
     sites: c.sites || [],
@@ -357,12 +384,17 @@ async function builderConfig(env, id) {
   if (!job) return fail("not found", 404);
   if (job.status === "queued") await setStatus(env, id, "building");
   const config = JSON.parse(job.config);
+  if (config.type === "filter") {
+    // the phone gets its first rules inside the app; the owner key never goes into the app
+    config.rules = (await filterRules(env, config.filterId)) || {};
+    delete config.filterKey;
+  }
   return json({
     appName: job.app_name,
     appId: job.app_id,
     versionCode: job.version_code,
     versionName: versionNameOf(job),
-    type: config.type === "lock" ? "lock" : "site",
+    type: config.type === "lock" || config.type === "filter" ? config.type : "site",
     firstHost: config.sites && config.sites.length ? new URL(config.sites[0].url).hostname : "",
     firstUrl: config.sites && config.sites.length ? config.sites[0].url : "",
     icon: job.icon || "",
@@ -434,6 +466,15 @@ export default {
         });
       }
       if (path === "/api/build" && method === "POST") return await createBuild(request, env);
+      if (/^\/filter\/[a-f0-9]{24}$/.test(path) && method === "GET") {
+        return new Response(renderFilterPage(), {
+          headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache", "referrer-policy": "no-referrer", "x-robots-tag": "noindex" },
+        });
+      }
+      if (path.startsWith("/api/filter/")) {
+        const fr = await filterRoute(request, env, path);
+        if (fr) return fr;
+      }
 
       let m;
       if ((m = /^\/api\/jobs\/([a-f0-9]{24})$/.exec(path)) && method === "GET") {
