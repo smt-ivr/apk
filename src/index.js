@@ -239,7 +239,8 @@ async function createBuild(request, env) {
     const title = cleanText(s?.title, 40) || new URL(url).hostname;
     sites.push({ title, url, restrictPath: !!s?.restrictPath });
   }
-  if (type === "site" && !sites.length) return fail("נא להזין לפחות כתובת אתר אחת");
+  const restoreTool = type === "site" && !!body.restoreTool;
+  if (type === "site" && !sites.length && !restoreTool) return fail("נא להזין לפחות כתובת אתר אחת");
 
   const extraDomains = [];
   for (const d of Array.isArray(body.extraDomains) ? body.extraDomains.slice(0, MAX_EXTRA) : []) {
@@ -310,6 +311,7 @@ async function createBuild(request, env) {
     const slug = appName.toLowerCase().replace(/[^a-z0-9]+/g, "").slice(0, 24) || "browser";
     appId = "com.smt." + slug;
     config = { sites, extraDomains, orientation, toolbar, desktop, pinSalt, pinHash };
+    if (restoreTool) config.restoreTool = true;
   }
   if (prevJob) appId = prevJob.app_id;
   // Manager override (gated area only): pin an exact package name. Used to update an app already installed

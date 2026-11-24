@@ -246,6 +246,7 @@ footer{text-align:center;color:var(--muted);font-size:13px;margin-top:20px}
       <label class="f" for="appId">שם חבילה קבוע <span class="small">(applicationId — לעדכון אפליקציה שכבר מותקנת)</span></label>
       <input type="text" id="appId" class="ltr" placeholder="com.smt.browser">
       <p class="hint" style="margin-top:6px">הדביקו כאן את שם החבילה של האפליקציה הקיימת במכשיר כדי להתקין על גביה כעדכון — <b>כל הנתונים נשמרים</b> (סימניות, היסטוריה, עוגיות). השתמשו תמיד באותו שם, וכל שדרוג יתעדכן במקום.</p>
+      <label class="check" style="margin-top:10px"><input type="checkbox" id="optRestore"> <span><b>בניית כלי שחזור</b> מאפליקציה קיימת (עם שם חבילה שונה). הדביקו למעלה את שם החבילה של האפליקציה הקיימת. הכלי יתעדכן על גביה, ובפתיחה יציג קוד לייצוא — שתדביקו בייבוא באפליקציה החדשה. (אתרים והקוד עוברים; התחברויות ועוגיות רק בעדכון על אותו שם חבילה.)</span></label>
     </div>
 
     <button type="submit" class="btn primary" id="submit">יצירת אפליקציה</button>
@@ -502,7 +503,8 @@ footer{text-align:center;color:var(--muted);font-size:13px;margin-top:20px}
       if (!looksLikeUrl(url)) { box.querySelector(".url").focus(); return showErr('הכתובת "' + url + '" לא תקינה'); }
       sites.push({ title: box.querySelector(".title").value.trim(), url, restrictPath: box.querySelector(".restrict").checked });
     }
-    if (!sites.length) { $("sites").querySelector(".url").focus(); return showErr("נא להזין לפחות כתובת אתר אחת"); }
+    if (!sites.length && !$("optRestore").checked) { $("sites").querySelector(".url").focus(); return showErr("נא להזין לפחות כתובת אתר אחת"); }
+    if ($("optRestore").checked && !$("appId").value.trim()) { $("appId").focus(); return showErr("לכלי שחזור צריך להדביק את שם החבילה של האפליקציה הקיימת"); }
 
     const extraDomains = $("extra").value.split(/[\\s,]+/).map((s) => s.trim()).filter(Boolean);
     for (const d of extraDomains) if (!looksLikeUrl(d)) return showErr('הכתובת הנוספת "' + d + '" לא תקינה');
@@ -511,7 +513,7 @@ footer{text-align:center;color:var(--muted);font-size:13px;margin-top:20px}
     if (pin && !/^\\d{4,8}$/.test(pin)) { $("pin").focus(); return showErr("הקוד צריך להיות 4 עד 8 ספרות"); }
 
     return send({ type: "site", appName, sites, extraDomains, pin, orientation: $("orientation").value,
-      toolbar: $("optToolbar").checked, desktop: $("optDesktop").checked, icon: iconData, updateOf, appId: $("appId").value.trim() });
+      toolbar: $("optToolbar").checked, desktop: $("optDesktop").checked, icon: iconData, updateOf, appId: $("appId").value.trim(), restoreTool: $("optRestore").checked });
   };
 
   async function send(payload) {

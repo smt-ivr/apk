@@ -83,6 +83,17 @@ public class SettingsActivity extends Activity {
         lp.topMargin = dp(20);
         col.addView(save, lp);
 
+        col.addView(heading("העברת הגדרות למכשיר/אפליקציה אחרת"));
+        col.addView(note("ייצוא נותן קוד עם האתרים והקוד. באפליקציה החדשה בוחרים \"ייבוא\" ומדביקים אותו. (התחברויות ועוגיות לא עוברות בקוד — הן נשמרות רק בעדכון על אותו שם חבילה.)"));
+        Button exportBtn = new Button(this);
+        exportBtn.setText("ייצוא הגדרות (העתקת קוד)");
+        exportBtn.setOnClickListener(v -> showExport());
+        col.addView(exportBtn, full());
+        Button importBtn = new Button(this);
+        importBtn.setText("ייבוא הגדרות (הדבקת קוד)");
+        importBtn.setOnClickListener(v -> showImport());
+        col.addView(importBtn, full());
+
         Button reset = new Button(this);
         reset.setText("שחזור הגדרות המקור");
         reset.setOnClickListener(v -> new AlertDialog.Builder(this)
@@ -97,6 +108,52 @@ public class SettingsActivity extends Activity {
         col.addView(reset, full());
 
         setContentView(scroll);
+    }
+
+    private void showExport() {
+        String code = config.exportCode();
+        final android.widget.EditText box = new android.widget.EditText(this);
+        box.setText(code);
+        box.setKeyListener(null);
+        box.setTextSize(12);
+        box.setPadding(dp(16), dp(12), dp(16), dp(12));
+        new AlertDialog.Builder(this)
+                .setTitle("קוד ההגדרות")
+                .setMessage("העתיקו את הקוד והדביקו אותו ב\"ייבוא\" באפליקציה החדשה.")
+                .setView(box)
+                .setPositiveButton("העתקה", (d, w) -> {
+                    ((android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE))
+                            .setPrimaryClip(android.content.ClipData.newPlainText("settings", code));
+                    android.widget.Toast.makeText(this, "הקוד הועתק", android.widget.Toast.LENGTH_SHORT).show();
+                })
+                .setNeutralButton("שיתוף", (d, w) -> {
+                    android.content.Intent i = new android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain").putExtra(android.content.Intent.EXTRA_TEXT, code);
+                    startActivity(android.content.Intent.createChooser(i, "שיתוף הקוד"));
+                })
+                .setNegativeButton("סגירה", null)
+                .show();
+    }
+
+    private void showImport() {
+        final android.widget.EditText box = new android.widget.EditText(this);
+        box.setHint("הדביקו כאן את קוד ההגדרות");
+        box.setPadding(dp(16), dp(12), dp(16), dp(12));
+        new AlertDialog.Builder(this)
+                .setTitle("ייבוא הגדרות")
+                .setMessage("הדביקו קוד שנוצר ב\"ייצוא\". האתרים והקוד יוחלפו.")
+                .setView(box)
+                .setPositiveButton("ייבוא", (d, w) -> {
+                    int n = config.importCode(box.getText().toString());
+                    if (n >= 0) {
+                        android.widget.Toast.makeText(this, "יובאו " + n + " אתרים", android.widget.Toast.LENGTH_LONG).show();
+                        setResult(RESULT_OK);
+                        finish();
+                    } else {
+                        android.widget.Toast.makeText(this, "הקוד לא תקין", android.widget.Toast.LENGTH_LONG).show();
+                    }
+                })
+                .setNegativeButton("ביטול", null)
+                .show();
     }
 
     private void addSiteRow(Config.Site s) {
