@@ -92,6 +92,11 @@ public class MainActivity extends Activity {
     private ProgressBar progress;
     private FrameLayout content;
     private WebView web;
+    private final java.util.List<WebView> tabs = new java.util.ArrayList<>();
+    private int activeTab = 0;
+    private Client client;
+    private Chrome chrome;
+    private TextView tabCount;
     private ScrollView home;
     private LinearLayout errorView;
     private TextView errorText;
@@ -327,7 +332,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
-        web.destroy();
+        for (WebView t : tabs) { try { t.destroy(); } catch (Exception ignored) { } }
         super.onDestroy();
     }
 
@@ -400,6 +405,7 @@ public class MainActivity extends Activity {
         bar.addView(titles, tp);
 
         bar.addView(barButton(R.drawable.ic_refresh, "רענון", v -> reload()));
+        bar.addView(tabButton());
         bar.addView(barButton(R.drawable.ic_more, "תפריט", this::showPageMenu));
         root.addView(bar, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)));
         View line = new View(this);
@@ -425,34 +431,11 @@ public class MainActivity extends Activity {
         content = new FrameLayout(this);
         root.addView(content, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
 
-        web = new WebView(this);
-        WebSettings s = web.getSettings();
-        // Like a normal browser: drop the "wv" (WebView) marker that some sites refuse.
-        mobileUa = s.getUserAgentString().replace("; wv)", ")");
-        s.setJavaScriptEnabled(true);
-        s.setDomStorageEnabled(true);
-        s.setDatabaseEnabled(true);
-        s.setLoadWithOverviewMode(true);
-        s.setUseWideViewPort(true);
-        s.setBuiltInZoomControls(true);
-        s.setDisplayZoomControls(false);
-        s.setMediaPlaybackRequiresUserGesture(false);
-        s.setGeolocationEnabled(true);
-        s.setAllowFileAccess(false);
-        s.setAllowContentAccess(false);
-        // Pages that open new windows (target=_blank, window.open) load here and pass the allow check.
-        s.setSupportMultipleWindows(true);
-        s.setJavaScriptCanOpenWindowsAutomatically(true);
-        CookieManager.getInstance().setAcceptCookie(true);
-        CookieManager.getInstance().setAcceptThirdPartyCookies(web, true);
-        applyDesktop(prefs.getBoolean("desktop", config.desktop), false);
-
-        web.addJavascriptInterface(new Bridge(), "SmtApp");
-        web.setWebViewClient(new Client());
-        web.setWebChromeClient(new Chrome());
-        web.setDownloadListener(this::onDownload);
-        web.setOnLongClickListener(v -> onLongPress());
-        content.addView(web, match());
+        client = new Client();
+        chrome = new Chrome();
+        mobileUa = new WebView(this).getSettings().getUserAgentString().replace("; wv)", ")");
+        web = createTab();
+        tabs.add(web);
 
         home = new ScrollView(this);
         home.setBackgroundColor(color(R.color.page));
@@ -812,14 +795,173 @@ public class MainActivity extends Activity {
         errorView.setVisibility(View.GONE);
         findBar.setVisibility(View.GONE);
         progress.setVisibility(View.GONE);
-        web.stopLoading();
-        web.setVisibility(View.INVISIBLE);
+        if (web != null) web.stopLoading();
+        for (WebView t : tabs) t.setVisibility(View.INVISIBLE);
         updateBar();
+    }
+
+    // ------------------------------------------------------------------ tabs
+
+    /** A square button in the bar showing how many tabs are open; tap to open the tab switcher. */
+    private View tabButton() {
+        tabCount = new TextView(this);
+        tabCount.setText("1");
+        tabCount.setGravity(Gravity.CENTER);
+        tabCount.setTextColor(color(R.color.bar_text));
+        tabCount.setTextSize(13);
+        tabCount.setTypeface(Typeface.DEFAULT_BOLD);
+        GradientDrawable box = new GradientDrawable();
+        box.setCornerRadius(dp(5));
+        box.setStroke(Math.max(2, dp(2)), color(R.color.bar_text));
+        tabCount.setBackground(box);
+        FrameLayout wrap = new FrameLayout(this);
+        wrap.setBackground(new RippleDrawable(ColorStateList.valueOf(0x22000000), null, null));
+        wrap.addView(tabCount, new FrameLayout.LayoutParams(dp(24), dp(24), Gravity.CENTER));
+        wrap.setOnClickListener(v -> openTabSwitcher());
+        wrap.setContentDescription("כרטיסיות");
+        wrap.setLayoutParams(new LinearLayout.LayoutParams(dp(42), dp(46)));
+        return wrap;
+    }
+
+    private void updateTabCount() {
+        if (tabCount != null) tabCount.setText(String.valueOf(tabs.size()));
+    }
+
+    @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
+    private WebView createTab() {
+        WebView w = new WebView(this);
+        WebSettings s = w.getSettings();
+        s.setJavaScriptEnabled(true);
+        s.setDomStorageEnabled(true);
+        s.setDatabaseEnabled(true);
+        s.setLoadWithOverviewMode(true);
+        s.setUseWideViewPort(true);
+        s.setBuiltInZoomControls(true);
+        s.setDisplayZoomControls(false);
+        s.setMediaPlaybackRequiresUserGesture(false);
+        s.setGeolocationEnabled(true);
+        s.setAllowFileAccess(false);
+        s.setAllowContentAccess(false);
+        s.setSupportMultipleWindows(true);
+        s.setJavaScriptCanOpenWindowsAutomatically(true);
+        s.setUserAgentString(prefs.getBoolean("desktop", config.desktop) ? DESKTOP_UA : mobileUa);
+        CookieManager.getInstance().setAcceptCookie(true);
+        CookieManager.getInstance().setAcceptThirdPartyCookies(w, true);
+        w.addJavascriptInterface(new Bridge(), "SmtApp");
+        w.setWebViewClient(client);
+        w.setWebChromeClient(chrome);
+        w.setDownloadListener(this::onDownload);
+        w.setOnLongClickListener(v -> onLongPress());
+        content.addView(w, 0, match()); // below the home / error / overlays
+        return w;
+    }
+
+    /** Opens a fresh tab. url != null loads it; url == null shows the home screen. */
+    private void newTab(String url) {
+        web = createTab();
+        tabs.add(web);
+        activeTab = tabs.size() - 1;
+        updateTabCount();
+        if (url != null) open(url);
+        else goHome();
+    }
+
+    /** Show the active tab's page, or the home screen if that tab is empty. */
+    private void showActiveTab() {
+        errorView.setVisibility(View.GONE);
+        String u = web == null ? null : web.getUrl();
+        if (u == null || u.isEmpty() || u.equals("about:blank")) showHome();
+        else showWeb();
+    }
+
+    private void switchTab(int i) {
+        if (i < 0 || i >= tabs.size()) return;
+        activeTab = i;
+        web = tabs.get(i);
+        showActiveTab();
+        updateBar();
+    }
+
+    private void closeTab(int i) {
+        if (i < 0 || i >= tabs.size()) return;
+        if (tabs.size() == 1) {
+            WebView only = tabs.get(0);
+            only.stopLoading();
+            only.loadUrl("about:blank");
+            only.clearHistory();
+            goHome();
+            return;
+        }
+        WebView w = tabs.remove(i);
+        content.removeView(w);
+        w.destroy();
+        if (activeTab >= tabs.size()) activeTab = tabs.size() - 1;
+        else if (i < activeTab) activeTab--;
+        web = tabs.get(activeTab);
+        updateTabCount();
+        showActiveTab();
+        updateBar();
+    }
+
+    private void openTabSwitcher() {
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        ScrollView sc = new ScrollView(this);
+        sc.addView(list);
+        AlertDialog d = new AlertDialog.Builder(this)
+                .setTitle("כרטיסיות (" + tabs.size() + ")")
+                .setView(sc)
+                .setPositiveButton("כרטיסייה חדשה", (dd, w) -> newTab(null))
+                .setNegativeButton("סגירה", null)
+                .create();
+        for (int i = 0; i < tabs.size(); i++) {
+            final int idx = i;
+            WebView t = tabs.get(i);
+            LinearLayout row = new LinearLayout(this);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(dp(14), dp(12), dp(10), dp(12));
+            row.setBackground(new RippleDrawable(ColorStateList.valueOf(0x22000000), null, null));
+            LinearLayout tx = new LinearLayout(this);
+            tx.setOrientation(LinearLayout.VERTICAL);
+            String title = t.getTitle();
+            String url = t.getUrl();
+            boolean blank = url == null || url.equals("about:blank") || url.isEmpty();
+            TextView tt = new TextView(this);
+            tt.setText(blank ? "כרטיסייה חדשה" : (TextUtils.isEmpty(title) ? prettyUrl(url) : title));
+            tt.setTextColor(color(R.color.bar_text));
+            tt.setTextSize(15);
+            tt.setSingleLine(true);
+            tt.setEllipsize(TextUtils.TruncateAt.END);
+            if (i == activeTab) tt.setTypeface(Typeface.DEFAULT_BOLD);
+            tx.addView(tt);
+            if (!blank) {
+                TextView tu = new TextView(this);
+                tu.setText(prettyUrl(url));
+                tu.setTextColor(color(R.color.bar_muted));
+                tu.setTextSize(12);
+                tu.setSingleLine(true);
+                tu.setEllipsize(TextUtils.TruncateAt.MIDDLE);
+                tu.setTextDirection(View.TEXT_DIRECTION_LTR);
+                tx.addView(tu);
+            }
+            row.addView(tx, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+            TextView x = new TextView(this);
+            x.setText("✕");
+            x.setTextSize(18);
+            x.setTextColor(color(R.color.bar_muted));
+            x.setGravity(Gravity.CENTER);
+            x.setBackground(new RippleDrawable(ColorStateList.valueOf(0x22000000), null, null));
+            x.setOnClickListener(v -> { d.dismiss(); closeTab(idx); openTabSwitcher(); });
+            row.addView(x, new LinearLayout.LayoutParams(dp(40), dp(40)));
+            row.setOnClickListener(v -> { d.dismiss(); switchTab(idx); });
+            list.addView(row);
+        }
+        d.show();
     }
 
     private void showWeb() {
         home.setVisibility(View.GONE);
-        web.setVisibility(View.VISIBLE);
+        for (WebView t : tabs) t.setVisibility(t == web ? View.VISIBLE : View.INVISIBLE);
         updateBar();
     }
 
@@ -924,49 +1066,50 @@ public class MainActivity extends Activity {
         public void onPageStarted(WebView view, String url, Bitmap favicon) {
             if (!config.isAllowed(url)) {
                 view.stopLoading();
-                blocked();
                 if (view.canGoBack()) {
                     view.goBack();
-                } else if (config.sites.size() > 1) {
+                } else if (view == web && config.sites.size() > 1) {
                     showHome();
-                } else {
-                    // Don't reload the start page here: if it redirects elsewhere that would loop.
+                } else if (view == web) {
                     errorText.setText("האתר מפנה לכתובת שאינה ברשימת האתרים המורשים:\n" + Config.hostOf(url));
                     errorView.setVisibility(View.VISIBLE);
                     progress.setVisibility(View.GONE);
                 }
                 return;
             }
-            progress.setVisibility(View.VISIBLE);
+            if (view == web) progress.setVisibility(View.VISIBLE);
             view.evaluateJavascript(bridgeJs, null);
-            updateBar();
+            if (view == web) updateBar();
         }
 
         @Override
         public void onPageFinished(WebView view, String url) {
-            progress.setVisibility(View.GONE);
             view.evaluateJavascript(bridgeJs, null);
-            if (clearHistoryOnNextPage) {
-                view.clearHistory();
-                clearHistoryOnNextPage = false;
+            if (view == web) {
+                progress.setVisibility(View.GONE);
+                if (clearHistoryOnNextPage) {
+                    view.clearHistory();
+                    clearHistoryOnNextPage = false;
+                }
+                updateBar();
             }
-            updateBar();
+            updateTabCount();
         }
 
         @Override
         public void doUpdateVisitedHistory(WebView view, String url, boolean isReload) {
-            updateBar();
+            if (view == web) updateBar();
         }
 
         @Override
         public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
-            if (Build.VERSION.SDK_INT >= 23 && request.isForMainFrame()) showError();
+            if (Build.VERSION.SDK_INT >= 23 && request.isForMainFrame() && view == web) showError();
         }
 
         @Override
         @SuppressWarnings("deprecation")
         public void onReceivedError(WebView view, int code, String desc, String failingUrl) {
-            if (Build.VERSION.SDK_INT < 23) showError();
+            if (Build.VERSION.SDK_INT < 23 && view == web) showError();
         }
     }
 
@@ -979,30 +1122,27 @@ public class MainActivity extends Activity {
     private class Chrome extends WebChromeClient {
         @Override
         public void onProgressChanged(WebView view, int p) {
+            if (view != web) return;
             progress.setProgress(p);
             if (p >= 100) progress.setVisibility(View.GONE);
         }
 
         @Override
         public void onReceivedTitle(WebView view, String title) {
-            updateBar();
+            if (view == web) updateBar();
         }
 
         /** window.open / target=_blank: load in this same view (still checked against the allowed sites). */
         @Override
         public boolean onCreateWindow(WebView view, boolean isDialog, boolean isUserGesture, Message resultMsg) {
-            WebView temp = new WebView(MainActivity.this);
-            temp.setWebViewClient(new WebViewClient() {
-                @Override
-                public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) {
-                    String u = r.getUrl().toString();
-                    if (config.isAllowed(u)) web.loadUrl(u);
-                    else blocked();
-                    v.destroy();
-                    return true;
-                }
-            });
-            ((WebView.WebViewTransport) resultMsg.obj).setWebView(temp);
+            // target=_blank / window.open: open it in a NEW tab (checked against the allowed sites)
+            WebView w = createTab();
+            tabs.add(w);
+            activeTab = tabs.size() - 1;
+            web = w;
+            showWeb();
+            updateTabCount();
+            ((WebView.WebViewTransport) resultMsg.obj).setWebView(w);
             resultMsg.sendToTarget();
             return true;
         }
