@@ -6,7 +6,14 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
+import android.content.Intent;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.net.Uri;
+import android.view.Gravity;
 import android.text.InputType;
+import android.util.Base64;
+import android.widget.ImageView;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
@@ -19,12 +26,18 @@ import android.widget.Toast;
 
 import java.util.ArrayList;
 import java.util.List;
+import android.webkit.CookieManager;
+import android.webkit.WebStorage;
+import java.io.InputStream;
 
 /** PIN-protected screen for changing the allowed sites without building a new APK. */
 public class SettingsActivity extends Activity {
 
     private Config config;
     private LinearLayout siteRows;
+    private static final int REQ_ICON = 21;
+    private String[] pendingIcon;
+    private ImageView pendingPreview;
     private EditText extraInput;
     private EditText pin1;
     private EditText pin2;
@@ -77,6 +90,39 @@ public class SettingsActivity extends Activity {
         pins.addView(pin1);
         pins.addView(pin2);
         col.addView(card(pins));
+
+        col.addView(heading("חסימה ומצב מנהל"));
+        col.addView(note("הודעה שתוצג כשנכנסים לכתובת חסומה (הודעה קצרה, לא מסך מלא)."));
+        blockMsgField = new EditText(this);
+        blockMsgField.setHint(Config.DEFAULT_BLOCK_MSG);
+        blockMsgField.setText(config.blockMessage());
+        blockMsgField.setSingleLine(true);
+        col.addView(card(blockMsgField));
+        final CheckBox admin = new CheckBox(this);
+        admin.setText("מצב מנהל: בכתובת חסומה אפשר להוסיף אותה לרשימה בלחיצה (בלי קוד בכל פעם)");
+        admin.setChecked(config.adminMode());
+        admin.setOnCheckedChangeListener((b, on) -> config.setAdminMode(on));
+        col.addView(admin);
+
+        col.addView(heading("עדכון האפליקציה"));
+        Button upd = new Button(this);
+        upd.setText("בדיקת עדכון");
+        upd.setOnClickListener(v -> Updater.check(this, true));
+        col.addView(upd, full());
+
+        col.addView(heading("פרטיות"));
+        Button clear = new Button(this);
+        clear.setText("ניקוי נתוני גלישה (עוגיות ואחסון)");
+        clear.setOnClickListener(v -> new AlertDialog.Builder(this)
+                .setMessage("לנקות עוגיות, התחברויות ונתוני אתרים? ייתכן שתצטרך להתחבר מחדש לאתרים.")
+                .setPositiveButton("ניקוי", (d, w) -> {
+                    try { CookieManager.getInstance().removeAllCookies(null); CookieManager.getInstance().flush(); } catch (Exception ignored) { }
+                    try { WebStorage.getInstance().deleteAllData(); } catch (Exception ignored) { }
+                    toast("נוקה");
+                })
+                .setNegativeButton("ביטול", null)
+                .show());
+        col.addView(clear, full());
 
         Button save = new Button(this);
         save.setText("שמירה");
@@ -181,6 +227,31 @@ public class SettingsActivity extends Activity {
         restrict.setChecked(s.restrictPath);
         row.addView(restrict);
 
+        final String[] iconHolder = new String[]{s.icon};
+        LinearLayout iconRow = new LinearLayout(this);
+        iconRow.setGravity(Gravity.CENTER_VERTICAL);
+        final ImageView preview = new ImageView(this);
+        preview.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        showIconPreview(preview, iconHolder[0]);
+        iconRow.addView(preview, new LinearLayout.LayoutParams(dp(40), dp(40)));
+        Button pick = new Button(this);
+        pick.setText("בחירת תמונה");
+        pick.setOnClickListener(v -> {
+            pendingIcon = iconHolder;
+            pendingPreview = preview;
+            try {
+                startActivityForResult(new Intent(Intent.ACTION_GET_CONTENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE), REQ_ICON);
+            } catch (Exception e) {
+                toast("לא נמצאה אפליקציה לבחירת תמונה");
+            }
+        });
+        iconRow.addView(pick);
+        Button clearIcon = new Button(this);
+        clearIcon.setText("איפוס");
+        clearIcon.setOnClickListener(v -> { iconHolder[0] = null; showIconPreview(preview, null); });
+        iconRow.addView(clearIcon);
+        row.addView(iconRow);
+
         Button del = new Button(this);
         del.setText("הסרה");
         del.setTextColor(Color.parseColor("#B3261E"));
@@ -189,8 +260,45 @@ public class SettingsActivity extends Activity {
 
         View c = card(row);
         del.setOnClickListener(v -> siteRows.removeView(c));
-        row.setTag(new Object[]{title, url, restrict});
+        row.setTag(new Object[]{title, url, restrict, iconHolder});
         siteRows.addView(c);
+    }
+
+    private EditText blockMsgField;
+
+    private void showIconPreview(ImageView iv, String b64) {
+        if (b64 == null || b64.isEmpty()) {
+            iv.setImageDrawable(null);
+            iv.setBackgroundColor(Color.parseColor("#E3E8F0"));
+            return;
+        }
+        try {
+            byte[] b = Base64.decode(b64, Base64.DEFAULT);
+            iv.setImageBitmap(BitmapFactory.decodeByteArray(b, 0, b.length));
+            iv.setBackgroundColor(Color.TRANSPARENT);
+        } catch (Exception e) {
+            iv.setImageDrawable(null);
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int req, int res, Intent data) {
+        super.onActivityResult(req, res, data);
+        if (req != REQ_ICON || res != RESULT_OK || data == null || data.getData() == null || pendingIcon == null) return;
+        try (InputStream in = getContentResolver().openInputStream(data.getData())) {
+            Bitmap src = BitmapFactory.decodeStream(in);
+            if (src == null) { toast("תמונה לא תקינה"); return; }
+            int side = Math.min(src.getWidth(), src.getHeight());
+            int size = Math.min(128, side);
+            Bitmap sq = Bitmap.createBitmap(src, (src.getWidth() - side) / 2, (src.getHeight() - side) / 2, side, side);
+            Bitmap scaled = Bitmap.createScaledBitmap(sq, size, size, true);
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            scaled.compress(Bitmap.CompressFormat.PNG, 100, out);
+            pendingIcon[0] = Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP);
+            if (pendingPreview != null) showIconPreview(pendingPreview, pendingIcon[0]);
+        } catch (Exception e) {
+            toast("לא ניתן לטעון את התמונה");
+        }
     }
 
     private void save() {
@@ -207,7 +315,9 @@ public class SettingsActivity extends Activity {
                 return;
             }
             if (title.isEmpty()) title = Config.hostOf(url);
-            sites.add(new Config.Site(title, url, ((CheckBox) f[2]).isChecked()));
+            Config.Site site = new Config.Site(title, url, ((CheckBox) f[2]).isChecked());
+            if (f.length > 3 && f[3] != null) site.icon = ((String[]) f[3])[0];
+            sites.add(site);
         }
         if (sites.isEmpty()) {
             toast("צריך לפחות אתר אחד");
@@ -239,6 +349,7 @@ public class SettingsActivity extends Activity {
             config.setPin(p1);
         }
 
+        if (blockMsgField != null) config.setBlockMessage(blockMsgField.getText().toString());
         config.save(sites, extra);
         toast("נשמר");
         setResult(RESULT_OK);
