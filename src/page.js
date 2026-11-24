@@ -95,10 +95,27 @@ footer{text-align:center;color:var(--muted);font-size:13px;margin-top:20px}
 </style>
 </head>
 <body data-type="site">
+<div id="gate" style="position:fixed;inset:0;background:var(--bg);z-index:50;display:flex;align-items:center;justify-content:center;padding:20px">
+  <div style="max-width:360px;width:100%;text-align:center">
+    <h1 style="margin:0 0 6px">אזור בנייה</h1>
+    <p class="small" id="gateMsg" style="margin:0 0 16px">האזור הזה מיועד למנהל בלבד. הזינו את קוד הכניסה.</p>
+    <input type="password" id="gateCode" class="ltr" inputmode="numeric" placeholder="קוד כניסה" style="text-align:center;font-size:20px;letter-spacing:4px">
+    <button type="button" class="btn primary" id="gateBtn" style="margin-top:12px;width:100%">כניסה</button>
+    <p class="err" id="gateErr" role="alert" style="margin-top:10px"></p>
+  </div>
+</div>
+<div id="builds" class="drawer-overlay" hidden style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:40;display:flex;justify-content:flex-start">
+  <div style="background:var(--bg);width:min(560px,100%);height:100%;overflow:auto;padding:18px">
+    <div style="display:flex;align-items:center;gap:8px"><h2 style="flex:1;margin:0">הבניות שלי</h2><button type="button" class="btn" id="buildsClose">סגירה</button></div>
+    <p class="small">כל האפליקציות שנבנו. אפשר להעתיק קישור הורדה, או לחסום הורדה.</p>
+    <div id="buildsList"></div>
+  </div>
+</div>
 <div class="wrap">
   <header>
     <h1>יוצר אפליקציות</h1>
     <p>אפליקציות אנדרואיד מותאמות אישית, מוכנות להתקנה.</p>
+    <button type="button" class="btn" id="myBuilds" style="margin-top:8px">הבניות שלי</button>
   </header>
 
   <div class="tabs" role="tablist">
@@ -226,6 +243,9 @@ footer{text-align:center;color:var(--muted);font-size:13px;margin-top:20px}
       <label class="check"><input type="checkbox" id="optToolbar" checked> <span><b>סרגל דפדפן</b>: אחורה, קדימה, דף הבית, רענון, העתקת קישור, שיתוף וחיפוש בדף. אפשר להסתיר אותו מתוך האפליקציה.</span></label>
       <label class="check"><input type="checkbox" id="optDesktop"> <span><b>מצב מחשב</b> כברירת מחדל (אפשר להחליף גם מתוך האפליקציה).</span></label>
       <p class="hint" style="margin-top:12px">עם קוד, בתפריט האפליקציה יהיה מסך הגדרות שבו אפשר להוסיף ולהסיר אתרים בלי לבנות אפליקציה חדשה. בלי קוד, הרשימה קבועה.</p>
+      <label class="f" for="appId">שם חבילה קבוע <span class="small">(applicationId — לעדכון אפליקציה שכבר מותקנת)</span></label>
+      <input type="text" id="appId" class="ltr" placeholder="com.smt.browser">
+      <p class="hint" style="margin-top:6px">הדביקו כאן את שם החבילה של האפליקציה הקיימת במכשיר כדי להתקין על גביה כעדכון — <b>כל הנתונים נשמרים</b> (סימניות, היסטוריה, עוגיות). השתמשו תמיד באותו שם, וכל שדרוג יתעדכן במקום.</p>
     </div>
 
     <button type="submit" class="btn primary" id="submit">יצירת אפליקציה</button>
@@ -306,6 +326,34 @@ footer{text-align:center;color:var(--muted);font-size:13px;margin-top:20px}
 (function () {
   const $ = (id) => document.getElementById(id);
   const API = location.pathname.replace(/\\/$/, "") + "/api";
+  let buildCode = ""; try { buildCode = sessionStorage.getItem("buildCode") || ""; } catch (e) {}
+  function gfetch(path, opts) {
+    opts = opts || {};
+    opts.headers = Object.assign({ "x-build-code": buildCode }, opts.headers || {});
+    if (!opts.cache) opts.cache = "no-store";
+    return fetch(API + path, opts).then(function (res) { if (res.status === 401) showGate("נדרשת כניסה מחדש"); return res; });
+  }
+  function showGate(msg) {
+    $("gate").style.display = "flex";
+    if (msg) { $("gateErr").textContent = msg; }
+    setTimeout(function () { $("gateCode").focus(); }, 50);
+  }
+  function hideGate() { $("gate").style.display = "none"; }
+  let setupMode = false;
+  async function gateState(code) {
+    const r = await fetch(API + "/gate", { method: "POST", headers: { "x-build-code": code || "" }, cache: "no-store" });
+    if (r.ok) return "ok";
+    const d = await r.json().catch(() => ({}));
+    return d.setup ? "setup" : "login";
+  }
+  function setGateMode(mode) {
+    setupMode = mode === "setup";
+    $("gateMsg").textContent = setupMode
+      ? "האזור עדיין לא מוגן. בחרו קוד כניסה למנהל (4–12 ספרות). שמרו אותו — הוא לא יוצג שוב."
+      : "האזור הזה מיועד למנהל בלבד. הזינו את קוד הכניסה.";
+    $("gateCode").placeholder = setupMode ? "קוד חדש" : "קוד כניסה";
+    $("gateBtn").textContent = setupMode ? "הגדרת הקוד" : "כניסה";
+  }
   const store = {
     get(k) { try { return localStorage.getItem(k); } catch { return null; } },
     set(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} },
@@ -338,7 +386,7 @@ footer{text-align:center;color:var(--muted);font-size:13px;margin-top:20px}
     showErr("");
     $("updLoad").disabled = true;
     try {
-      const r = await fetch(API + "/jobs/" + m[1] + "/settings", { cache: "no-store" });
+      const r = await gfetch("/jobs/" + m[1] + "/settings");
       const d = await r.json().catch(() => ({}));
       if (!r.ok || !d.ok) throw new Error(d.error || "הטעינה נכשלה");
       setType(d.type);
@@ -350,6 +398,7 @@ footer{text-align:center;color:var(--muted);font-size:13px;margin-top:20px}
         $("orientation").value = d.orientation || "auto";
         $("optToolbar").checked = d.toolbar !== false;
         $("optDesktop").checked = !!d.desktop;
+        if ($("appId")) $("appId").value = d.appId || "";
       }
       setUpdating(m[1], d.appName);
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -462,13 +511,13 @@ footer{text-align:center;color:var(--muted);font-size:13px;margin-top:20px}
     if (pin && !/^\\d{4,8}$/.test(pin)) { $("pin").focus(); return showErr("הקוד צריך להיות 4 עד 8 ספרות"); }
 
     return send({ type: "site", appName, sites, extraDomains, pin, orientation: $("orientation").value,
-      toolbar: $("optToolbar").checked, desktop: $("optDesktop").checked, icon: iconData, updateOf });
+      toolbar: $("optToolbar").checked, desktop: $("optDesktop").checked, icon: iconData, updateOf, appId: $("appId").value.trim() });
   };
 
   async function send(payload) {
     $("submit").disabled = true;
     try {
-      const r = await fetch(API + "/build", {
+      const r = await gfetch("/build", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(payload),
@@ -507,7 +556,7 @@ footer{text-align:center;color:var(--muted);font-size:13px;margin-top:20px}
     clearTimeout(timer);
     const poll = async () => {
       try {
-        const r = await fetch(API + "/jobs/" + id, { cache: "no-store" });
+        const r = await gfetch("/jobs/" + id);
         const d = await r.json();
         if (!d.ok) throw new Error(d.error || "שגיאה");
         if (d.status === "done") {
@@ -540,8 +589,64 @@ footer{text-align:center;color:var(--muted);font-size:13px;margin-top:20px}
   $("copyManage").onclick = () => navigator.clipboard.writeText($("manageLink").href).then(() => { $("copyManage").textContent = "הועתק ✓"; });
   $("again").onclick = () => { clearTimeout(timer); store.set("apkJob", null); setUpdating(null); view(null); };
 
-  const last = store.get("apkJob");
-  if (last && /^[a-f0-9]{24}$/.test(last)) track(last);
+  $("gateBtn").onclick = async () => {
+    const c = $("gateCode").value.trim();
+    if (!c) return;
+    $("gateBtn").disabled = true;
+    $("gateErr").textContent = "";
+    try {
+      if (setupMode) {
+        if (!/^[0-9]{4,12}$/.test(c)) { $("gateErr").textContent = "4 עד 12 ספרות"; $("gateBtn").disabled = false; return; }
+        const r = await fetch(API + "/gate/setup", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code: c }) });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok || !d.ok) { $("gateErr").textContent = d.error || "שגיאה"; $("gateBtn").disabled = false; return; }
+      } else if (await gateState(c) !== "ok") {
+        $("gateErr").textContent = "קוד שגוי"; $("gateCode").value = ""; $("gateBtn").disabled = false; return;
+      }
+    } catch (e) { $("gateErr").textContent = "שגיאת רשת"; $("gateBtn").disabled = false; return; }
+    $("gateBtn").disabled = false;
+    buildCode = c;
+    try { sessionStorage.setItem("buildCode", c); } catch (e) {}
+    hideGate();
+    const last = store.get("apkJob");
+    if (last && /^[a-f0-9]{24}$/.test(last)) track(last);
+  };
+  $("gateCode").addEventListener("keydown", (e) => { if (e.key === "Enter") $("gateBtn").click(); });
+
+  // my builds
+  async function loadBuilds() {
+    $("buildsList").innerHTML = '<p class="small">טוען…</p>';
+    const r = await gfetch("/mybuilds");
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.ok) { $("buildsList").innerHTML = '<p class="err">' + (d.error || "שגיאה") + '</p>'; return; }
+    const esc = (t) => String(t == null ? "" : t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+    const TL = { site: "דפדפן", lock: "נעילה", mdm: "ניהול" };
+    $("buildsList").innerHTML = d.builds.map((b) =>
+      '<div class="card" style="padding:12px;margin:8px 0"><b>' + esc(b.name) + '</b> <span class="small">· ' + (TL[b.type] || b.type) + ' · גרסה ' + esc(b.version) + '</span>' +
+      '<div class="small" style="margin:4px 0">' + (b.status === "done" ? (b.expired ? "פג תוקף הקובץ (אפשר לבנות מחדש)" : (b.blocked ? "ההורדה חסומה" : "זמין להורדה")) : b.status === "error" ? "נכשל" : "בבנייה…") + '</div>' +
+      (b.download ? '<div style="display:flex;gap:6px;flex-wrap:wrap"><button type="button" class="btn" data-copy="' + esc(b.download) + '">העתקת קישור הורדה</button></div>' : "") +
+      (b.status === "done" && !b.expired ? '<label class="check" style="margin-top:8px"><input type="checkbox" data-block="' + esc(b.id) + '"' + (b.blocked ? " checked" : "") + '> חסימת הורדה</label>' : "") +
+      '</div>'
+    ).join("") || '<p class="small">עדיין אין בניות.</p>';
+    $("buildsList").querySelectorAll("[data-copy]").forEach((el) => el.onclick = () => navigator.clipboard.writeText(el.dataset.copy).then(() => { el.textContent = "הועתק ✓"; }));
+    $("buildsList").querySelectorAll("[data-block]").forEach((el) => el.onchange = async () => {
+      await gfetch("/jobs/" + el.dataset.block + "/block", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ blocked: el.checked }) });
+    });
+  }
+  if ($("myBuilds")) $("myBuilds").onclick = () => { $("builds").hidden = false; loadBuilds(); };
+  $("buildsClose").onclick = () => { $("builds").hidden = true; };
+
+  (async () => {
+    const state = await gateState(buildCode).catch(() => "login");
+    if (state === "ok") {
+      hideGate();
+      const last = store.get("apkJob");
+      if (last && /^[a-f0-9]{24}$/.test(last)) track(last);
+    } else {
+      setGateMode(state);
+      showGate();
+    }
+  })();
 })();
 </script>
 </body>
