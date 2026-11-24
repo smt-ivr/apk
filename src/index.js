@@ -310,7 +310,7 @@ async function createBuild(request, env) {
     // clean default package name: com.smt.<slug from the app name>, no country/hash.
     const slug = appName.toLowerCase().replace(/[^a-z0-9]+/g, "").slice(0, 24) || "browser";
     appId = "com.smt." + slug;
-    config = { sites, extraDomains, orientation, toolbar, desktop, pinSalt, pinHash };
+    config = { sites, extraDomains, orientation, toolbar, desktop, pinSalt, pinHash, server: new URL(request.url).origin.replace(/^http:/, "https:") + BASE };
     if (restoreTool) config.restoreTool = true;
   }
   if (prevJob) appId = prevJob.app_id;
@@ -444,6 +444,18 @@ async function jobStatus(env, id, origin) {
     // For device management: the private control page (only whoever built the app has this job id).
     manage: manageUrl(origin, job),
   });
+}
+
+/** Public: the newest finished build for a given package (for in-app "check for update"). */
+async function latestForApp(env, url) {
+  await ensureSchema(env);
+  const appId = (url.searchParams.get("appId") || "").slice(0, 120);
+  if (!/^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$/.test(appId)) return json({ ok: false, error: "bad appId" }, 400);
+  const j = await env.DB.prepare(
+    `SELECT id, version_code, config, created_at, dl_blocked FROM apk_jobs WHERE app_id = ? AND status = 'done' AND chunks > 0 ORDER BY created_at DESC LIMIT 1`
+  ).bind(appId).first();
+  if (!j || j.dl_blocked) return json({ ok: true, versionCode: 0 });
+  return json({ ok: true, versionCode: j.version_code, version: versionNameOf(j), url: `${url.origin}${BASE}/download/${j.id}` });
 }
 
 async function download(env, id) {
@@ -625,6 +637,7 @@ export default {
         });
       }
       if (path === "/api/build" && method === "POST") return await createBuild(request, env);
+      if (path === "/api/latest" && method === "GET") return await latestForApp(env, url);
       if (path === "/api/gate" && method === "POST") { const d = await requireGate(request, env); return d || json({ ok: true }); }
       if (path === "/api/gate/setup" && method === "POST") return await setupGate(request, env);
       if (path === "/api/gate/change" && method === "POST") return await setGate(request, env);

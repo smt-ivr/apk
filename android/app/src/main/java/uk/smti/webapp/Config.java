@@ -29,6 +29,8 @@ public final class Config {
         public String url;
         /** When true only URLs under this site's path are allowed, not the whole domain. */
         public boolean restrictPath;
+        /** Custom icon (base64 PNG, data URI stripped), or null to use the fetched favicon / letter. */
+        public String icon;
 
         public Site(String title, String url, boolean restrictPath) {
             this.title = title;
@@ -55,6 +57,9 @@ public final class Config {
     private static final String K_PIN_SALT = "pin_salt";
     private static final String K_FAILS = "pin_fails";
     private static final String K_LOCK_UNTIL = "pin_lock_until";
+    private static final String K_BLOCKMSG = "block_msg";
+    private static final String K_ADMIN = "admin_mode";
+    public static final String DEFAULT_BLOCK_MSG = "הכתובת אינה מורשית באפליקציה";
 
     public final List<Site> sites = new ArrayList<>();
     public final List<String> extraDomains = new ArrayList<>();
@@ -107,7 +112,10 @@ public final class Config {
                 if (url == null) continue;
                 String title = o.optString("title", "").trim();
                 if (title.isEmpty()) title = hostOf(url);
-                sites.add(new Site(title, url, o.optBoolean("restrictPath", false)));
+                Site site = new Site(title, url, o.optBoolean("restrictPath", false));
+                String ic = o.optString("icon", "");
+                if (!ic.isEmpty()) site.icon = ic;
+                sites.add(site);
             }
         }
 
@@ -214,8 +222,9 @@ public final class Config {
         try {
             JSONArray s = new JSONArray();
             for (Site site : newSites) {
-                s.put(new JSONObject().put("title", site.title).put("url", site.url)
-                        .put("restrictPath", site.restrictPath));
+                JSONObject so = new JSONObject().put("title", site.title).put("url", site.url).put("restrictPath", site.restrictPath);
+                if (site.icon != null && !site.icon.isEmpty()) so.put("icon", site.icon);
+                s.put(so);
             }
             JSONArray x = new JSONArray();
             for (String d : newExtra) x.put(d);
@@ -242,6 +251,29 @@ public final class Config {
         return true;
     }
 
+    // ---------- block message + admin mode ----------
+
+    public String blockMessage() {
+        return prefs.getString(K_BLOCKMSG, defaults.optString("blockMessage", DEFAULT_BLOCK_MSG));
+    }
+
+    public void setBlockMessage(String m) {
+        prefs.edit().putString(K_BLOCKMSG, m == null || m.trim().isEmpty() ? DEFAULT_BLOCK_MSG : m.trim()).apply();
+    }
+
+    public boolean adminMode() {
+        return prefs.getBoolean(K_ADMIN, false);
+    }
+
+    /** The builder server that built this app (for in-app updates). */
+    public String server() {
+        return defaults.optString("server", "https://smti.uk/apk");
+    }
+
+    public void setAdminMode(boolean on) {
+        prefs.edit().putBoolean(K_ADMIN, on).apply();
+    }
+
     // ---------- export / import (move settings to another build) ----------
 
     /** A short code holding the sites, extra domains and the admin code. */
@@ -250,9 +282,12 @@ public final class Config {
             JSONObject o = new JSONObject();
             JSONArray s = new JSONArray();
             for (Site site : sites) {
-                s.put(new JSONObject().put("title", site.title).put("url", site.url).put("restrictPath", site.restrictPath));
+                JSONObject so = new JSONObject().put("title", site.title).put("url", site.url).put("restrictPath", site.restrictPath);
+                if (site.icon != null && !site.icon.isEmpty()) so.put("icon", site.icon);
+                s.put(so);
             }
             o.put("sites", s);
+            o.put("blockMessage", blockMessage());
             JSONArray x = new JSONArray();
             for (String d : extraDomains) x.put(d);
             o.put("extra", x);
@@ -283,6 +318,7 @@ public final class Config {
             if (o.has("pinHash")) {
                 e.putString(K_PIN_HASH, o.optString("pinHash")).putString(K_PIN_SALT, o.optString("pinSalt"));
             }
+            if (o.has("blockMessage")) e.putString(K_BLOCKMSG, o.optString("blockMessage"));
             e.apply();
             load();
             return s.length();

@@ -16,6 +16,7 @@ import android.content.SharedPreferences;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.graphics.PorterDuff;
 import android.graphics.Typeface;
@@ -52,6 +53,7 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.PopupMenu;
 import android.widget.ProgressBar;
@@ -74,10 +76,13 @@ public class MainActivity extends Activity {
     private static final int REQ_NOTIFY = 6;
 
     private static final int M_COPY = 1, M_SHARE = 2, M_DESKTOP = 3, M_HIDE_BAR = 4, M_FIND = 5,
-            M_RELOAD = 6, M_HOME = 7, M_SETTINGS = 8, M_BROWSER = 9;
+            M_RELOAD = 6, M_HOME = 7, M_SETTINGS = 8, M_BROWSER = 9, M_UPDATE = 10;
 
     private static final String DESKTOP_UA =
             "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+    // Force a desktop-width viewport so responsive sites render their desktop layout, not just the UA.
+    private static final String DESKTOP_VIEWPORT_JS =
+            "(function(){var v=document.querySelector('meta[name=viewport]');if(!v){v=document.createElement('meta');v.name='viewport';(document.head||document.documentElement).appendChild(v);}v.setAttribute('content','width=1024');})()";
     private static final String EXTRA_TAG = "notif_tag";
 
     private Config config;
@@ -136,7 +141,7 @@ public class MainActivity extends Activity {
         buildUi();
         if (savedInstanceState != null && web.restoreState(savedInstanceState) != null) {
             showWeb();
-        } else if (!openViewIntent(getIntent())) {
+        } else if (!openViewIntent(getIntent()) && !restoreTabs()) {
             showStart();
         }
         handleNotificationTap(getIntent());
@@ -277,21 +282,26 @@ public class MainActivity extends Activity {
     }
 
     /** A blocked page: offer to open it, in admin mode (with the code), by adding it to the allowed list. */
+    /** A blocked link the user tried to open. In admin mode: a small prompt to add it; otherwise a short message. */
     private void onBlocked(String url) {
         final String host = Config.hostOf(url);
-        new AlertDialog.Builder(this)
-                .setTitle("הכתובת חסומה")
-                .setMessage(host + "\nאינה ברשימת האתרים המורשים.")
-                .setPositiveButton("הוספה לרשימה (קוד)", (d, w) -> askCode("הוספת " + host + " לרשימה", () -> {
-                    if (config.allowHost(url)) {
-                        Toast.makeText(this, "נוסף לרשימה", Toast.LENGTH_SHORT).show();
-                        open(url);
-                    } else {
-                        Toast.makeText(this, "הכתובת לא תקינה", Toast.LENGTH_SHORT).show();
-                    }
-                }))
-                .setNegativeButton("סגירה", null)
-                .show();
+        if (config.adminMode()) {
+            new AlertDialog.Builder(this)
+                    .setTitle(config.blockMessage())
+                    .setMessage("להוסיף את " + host + " לרשימה המותרת?")
+                    .setPositiveButton("הוספה", (d, w) -> {
+                        if (config.allowHost(url)) {
+                            Toast.makeText(this, "נוסף לרשימה", Toast.LENGTH_SHORT).show();
+                            open(url);
+                        } else {
+                            Toast.makeText(this, "הכתובת לא תקינה", Toast.LENGTH_SHORT).show();
+                        }
+                    })
+                    .setNegativeButton("סגירה", null)
+                    .show();
+        } else {
+            blocked();
+        }
     }
 
     /** Ask for the admin code (or the hidden master code), then run the action. */
@@ -328,6 +338,7 @@ public class MainActivity extends Activity {
     protected void onPause() {
         super.onPause();
         CookieManager.getInstance().flush();
+        if (web != null) saveTabs();
     }
 
     @Override
@@ -548,6 +559,7 @@ public class MainActivity extends Activity {
         m.add(0, M_HIDE_BAR, 5, "הסתרת הסרגל");
         if (config.sites.size() > 1 && !onHome) m.add(0, M_HOME, 6, "מסך הבית");
         m.add(0, M_SETTINGS, 7, "הגדרות");
+        m.add(0, M_UPDATE, 8, "בדיקת עדכון");
         m.add(0, 0, 99, "גרסה " + versionName()).setEnabled(false);
         pm.setOnMenuItemClickListener(this::onMenu);
         pm.show();
@@ -580,6 +592,9 @@ public class MainActivity extends Activity {
             case M_SETTINGS:
                 askPin();
                 return true;
+            case M_UPDATE:
+                Updater.check(this, true);
+                return true;
         }
         return false;
     }
@@ -594,6 +609,13 @@ public class MainActivity extends Activity {
         s.setUserAgentString(desktop ? DESKTOP_UA : mobileUa);
         s.setUseWideViewPort(true);
         s.setLoadWithOverviewMode(true);
+        // apply to every open tab's settings too
+        for (WebView t : tabs) {
+            if (t == web) continue;
+            t.getSettings().setUserAgentString(desktop ? DESKTOP_UA : mobileUa);
+            t.getSettings().setUseWideViewPort(true);
+            t.getSettings().setLoadWithOverviewMode(true);
+        }
         if (reload && !isHomeShown()) {
             web.reload();
             Toast.makeText(this, desktop ? "מצב מחשב" : "מצב טלפון", Toast.LENGTH_SHORT).show();
@@ -682,7 +704,9 @@ public class MainActivity extends Activity {
                 actions.add(() -> copyText(text.trim(), "הטקסט הועתק"));
             }
             labels.add("פתיחה");
-            actions.add(() -> web.loadUrl(url));
+            actions.add(() -> { if (config.isAllowed(url)) web.loadUrl(url); else onBlocked(url); });
+            labels.add("פתיחה בכרטיסייה חדשה");
+            actions.add(() -> { if (config.isAllowed(url)) newTab(url); else onBlocked(url); });
             labels.add("שיתוף הקישור");
             actions.add(() -> share(url, text));
         }
@@ -713,6 +737,45 @@ public class MainActivity extends Activity {
     }
 
     // ------------------------------------------------------------------ home screen (several sites)
+
+    /** The round icon for a home card: a custom image, else the fetched favicon, else the first letter. */
+    private View siteIconView(Config.Site site) {
+        FrameLayout box = new FrameLayout(this);
+        TextView letter = new TextView(this);
+        letter.setText(site.title.trim().isEmpty() ? "?" : site.title.trim().substring(0, 1));
+        letter.setTextSize(20);
+        letter.setTypeface(Typeface.DEFAULT_BOLD);
+        letter.setTextColor(Color.WHITE);
+        letter.setGravity(Gravity.CENTER);
+        GradientDrawable dot = new GradientDrawable();
+        dot.setShape(GradientDrawable.OVAL);
+        dot.setColor(color(R.color.primary));
+        letter.setBackground(dot);
+        box.addView(letter, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+
+        ImageView img = new ImageView(this);
+        img.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        img.setClipToOutline(true);
+        GradientDrawable r = new GradientDrawable();
+        r.setShape(GradientDrawable.OVAL);
+        r.setColor(Color.WHITE);
+        img.setBackground(r);
+        int pad = dp(6);
+        img.setPadding(pad, pad, pad, pad);
+        img.setVisibility(View.GONE);
+        box.addView(img, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+
+        if (site.icon != null && !site.icon.isEmpty()) {
+            try {
+                byte[] b = android.util.Base64.decode(site.icon, android.util.Base64.DEFAULT);
+                Bitmap bm = BitmapFactory.decodeByteArray(b, 0, b.length);
+                if (bm != null) { img.setImageBitmap(bm); img.setVisibility(View.VISIBLE); }
+            } catch (Exception ignored) { }
+        } else {
+            Favicons.load(img, site.url);
+        }
+        return box;
+    }
 
     private void showHome() {
         LinearLayout list = new LinearLayout(this);
@@ -745,18 +808,7 @@ public class MainActivity extends Activity {
             card.setBackground(new RippleDrawable(ColorStateList.valueOf(0x22000000), bg, null));
             card.setClickable(true);
 
-            TextView letter = new TextView(this);
-            String l = site.title.trim().isEmpty() ? "?" : site.title.trim().substring(0, 1);
-            letter.setText(l);
-            letter.setTextSize(20);
-            letter.setTypeface(Typeface.DEFAULT_BOLD);
-            letter.setTextColor(Color.WHITE);
-            letter.setGravity(Gravity.CENTER);
-            GradientDrawable dot = new GradientDrawable();
-            dot.setShape(GradientDrawable.OVAL);
-            dot.setColor(color(R.color.primary));
-            letter.setBackground(dot);
-            card.addView(letter, new LinearLayout.LayoutParams(dp(44), dp(44)));
+            card.addView(siteIconView(site), new LinearLayout.LayoutParams(dp(44), dp(44)));
 
             LinearLayout txt = new LinearLayout(this);
             txt.setOrientation(LinearLayout.VERTICAL);
@@ -866,6 +918,53 @@ public class MainActivity extends Activity {
         else goHome();
     }
 
+    private void closeAllTabs() {
+        for (WebView t : tabs) { content.removeView(t); try { t.destroy(); } catch (Exception ignored) { } }
+        tabs.clear();
+        web = createTab();
+        tabs.add(web);
+        activeTab = 0;
+        updateTabCount();
+        goHome();
+    }
+
+    /** Remember the open tabs so they come back after the app is closed. */
+    private void saveTabs() {
+        try {
+            org.json.JSONArray a = new org.json.JSONArray();
+            for (WebView t : tabs) {
+                String u = t.getUrl();
+                if (u != null && !u.isEmpty() && !u.equals("about:blank")) a.put(u);
+            }
+            prefs.edit().putString("open_tabs", a.toString()).putInt("open_tab_active", activeTab).apply();
+        } catch (Exception ignored) {
+        }
+    }
+
+    /** Reopen the tabs from the last session. true = something was restored. */
+    private boolean restoreTabs() {
+        try {
+            org.json.JSONArray a = new org.json.JSONArray(prefs.getString("open_tabs", "[]"));
+            if (a.length() == 0) return false;
+            for (int i = 0; i < a.length(); i++) {
+                String u = a.optString(i);
+                if (u == null || u.isEmpty() || !config.isAllowed(u)) continue;
+                WebView w = (i == 0) ? tabs.get(0) : createTab();
+                if (i != 0) tabs.add(w);
+                w.loadUrl(u);
+            }
+            if (tabs.isEmpty()) return false;
+            int act = prefs.getInt("open_tab_active", 0);
+            activeTab = Math.max(0, Math.min(act, tabs.size() - 1));
+            web = tabs.get(activeTab);
+            updateTabCount();
+            showWeb();
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     /** Show the active tab's page, or the home screen if that tab is empty. */
     private void showActiveTab() {
         errorView.setVisibility(View.GONE);
@@ -908,12 +1007,13 @@ public class MainActivity extends Activity {
         list.setOrientation(LinearLayout.VERTICAL);
         ScrollView sc = new ScrollView(this);
         sc.addView(list);
-        AlertDialog d = new AlertDialog.Builder(this)
+        AlertDialog.Builder bld = new AlertDialog.Builder(this)
                 .setTitle("כרטיסיות (" + tabs.size() + ")")
                 .setView(sc)
                 .setPositiveButton("כרטיסייה חדשה", (dd, w) -> newTab(null))
-                .setNegativeButton("סגירה", null)
-                .create();
+                .setNegativeButton("סגירה", null);
+        if (tabs.size() > 1) bld.setNeutralButton("סגירת הכל", (dd, w) -> closeAllTabs());
+        AlertDialog d = bld.create();
         for (int i = 0; i < tabs.size(); i++) {
             final int idx = i;
             WebView t = tabs.get(i);
@@ -1005,7 +1105,7 @@ public class MainActivity extends Activity {
     }
 
     private void blocked() {
-        Toast.makeText(this, "הכתובת לא מורשית באפליקציה", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, config.blockMessage(), Toast.LENGTH_SHORT).show();
     }
 
     @Override
@@ -1066,15 +1166,9 @@ public class MainActivity extends Activity {
         public void onPageStarted(WebView view, String url, Bitmap favicon) {
             if (!config.isAllowed(url)) {
                 view.stopLoading();
-                if (view.canGoBack()) {
-                    view.goBack();
-                } else if (view == web && config.sites.size() > 1) {
-                    showHome();
-                } else if (view == web) {
-                    errorText.setText("האתר מפנה לכתובת שאינה ברשימת האתרים המורשים:\n" + Config.hostOf(url));
-                    errorView.setVisibility(View.VISIBLE);
-                    progress.setVisibility(View.GONE);
-                }
+                if (view == web) blocked();
+                if (view.canGoBack()) view.goBack();
+                else if (view == web) showHome();
                 return;
             }
             if (view == web) progress.setVisibility(View.VISIBLE);
@@ -1085,6 +1179,7 @@ public class MainActivity extends Activity {
         @Override
         public void onPageFinished(WebView view, String url) {
             view.evaluateJavascript(bridgeJs, null);
+            if (isDesktop()) view.evaluateJavascript(DESKTOP_VIEWPORT_JS, null);
             if (view == web) {
                 progress.setVisibility(View.GONE);
                 if (clearHistoryOnNextPage) {
