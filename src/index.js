@@ -43,7 +43,97 @@ let schemaReady = false;
 async function ensureSchema(env) {
   if (schemaReady) return;
   await env.DB.batch(SCHEMA.map((s) => env.DB.prepare(s)));
+  // per-app "block download" flag
+  const cols = new Set(((await env.DB.prepare("PRAGMA table_info(apk_jobs)").all()).results || []).map((c) => c.name));
+  if (!cols.has("dl_blocked")) await env.DB.prepare("ALTER TABLE apk_jobs ADD COLUMN dl_blocked INTEGER DEFAULT 0").run().catch(() => {});
   schemaReady = true;
+}
+
+// ---------------------------------------------------------------- build-area gate (code, never shown)
+
+const gateOk = new Set();
+const gateFails = new Map();
+
+/** Checks the build code from the x-build-code header. Returns null when allowed, or an error Response. */
+async function requireGate(request, env) {
+  await ensureSchema(env);
+  const ip = request.headers.get("cf-connecting-ip") || "";
+  const until = gateFails.get("lock:" + ip) || 0;
+  if (until > Date.now()) return fail("יותר מדי ניסיונות. נסו שוב בעוד דקות אחדות.", 401);
+  const row = await env.DB.prepare("SELECT v FROM apk_meta WHERE k = 'build_gate'").first();
+  // Not claimed yet: whoever opens the build area first chooses the code.
+  if (!row) return json({ ok: false, error: "האזור עדיין לא מוגן. בחרו קוד כניסה.", setup: true }, 401);
+  const code = request.headers.get("x-build-code") || "";
+  if (!code) return fail("נדרש קוד כניסה", 401);
+  let g;
+  try { g = JSON.parse(row.v); } catch { return fail("שגיאת שרת", 500); }
+  const memo = g.hash + "|" + code;
+  if (gateOk.has(memo)) return null;
+  if ((await sha256Hex(g.salt + code)) === g.hash) {
+    if (gateOk.size > 500) gateOk.clear();
+    gateOk.add(memo);
+    gateFails.delete(ip);
+    return null;
+  }
+  const n = (gateFails.get(ip) || 0) + 1;
+  gateFails.set(ip, n);
+  if (n >= 8) { gateFails.set("lock:" + ip, Date.now() + 15 * 60_000); gateFails.set(ip, 0); }
+  return fail("קוד שגוי", 401);
+}
+
+/** First-time setup: claim the build area with a code, but only if none is set yet. */
+async function setupGate(request, env) {
+  await ensureSchema(env);
+  const row = await env.DB.prepare("SELECT v FROM apk_meta WHERE k = 'build_gate'").first();
+  if (row) return fail("האזור כבר מוגן בקוד. היכנסו עם הקוד הקיים.", 403);
+  const b = await request.json().catch(() => ({}));
+  const code = String(b.code || "").trim();
+  if (!/^\d{4,12}$/.test(code)) return fail("הקוד צריך להיות 4 עד 12 ספרות");
+  const salt = randomHex(16);
+  await env.DB.prepare("INSERT OR IGNORE INTO apk_meta (k, v) VALUES ('build_gate', ?)")
+    .bind(JSON.stringify({ salt, hash: await sha256Hex(salt + code) })).run();
+  return json({ ok: true });
+}
+
+/** Change the build code (only from inside the gated area). */
+async function setGate(request, env) {
+  const denied = await requireGate(request, env);
+  if (denied) return denied;
+  const b = await request.json().catch(() => ({}));
+  const code = String(b.newCode || "").trim();
+  if (!/^\d{4,12}$/.test(code)) return fail("קוד חדש צריך להיות 4 עד 12 ספרות");
+  const salt = randomHex(16);
+  await env.DB.prepare("INSERT INTO apk_meta (k, v) VALUES ('build_gate', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v")
+    .bind(JSON.stringify({ salt, hash: await sha256Hex(salt + code) })).run();
+  gateOk.clear();
+  return json({ ok: true });
+}
+
+/** Recent builds, for the gated "my builds" list (download link + block toggle). */
+async function myBuilds(request, env, origin) {
+  const denied = await requireGate(request, env);
+  if (denied) return denied;
+  await ensureSchema(env);
+  const { results } = await env.DB.prepare(
+    `SELECT id, app_name, config, status, apk_size, chunks, dl_blocked, created_at FROM apk_jobs ORDER BY created_at DESC LIMIT 100`
+  ).all();
+  const now = Date.now();
+  const builds = (results || []).map((j) => ({
+    id: j.id, name: j.app_name, type: jobType(j), version: versionNameOf(j), status: j.status,
+    size: j.apk_size, blocked: !!j.dl_blocked,
+    download: j.status === "done" && j.chunks && !j.dl_blocked && now - j.created_at < KEEP_DAYS * 86400_000 ? `${origin}${BASE}/download/${j.id}` : null,
+    expired: !(j.chunks && now - j.created_at < KEEP_DAYS * 86400_000),
+    createdAt: j.created_at,
+  }));
+  return json({ ok: true, builds });
+}
+
+async function blockDownload(request, env, id) {
+  const denied = await requireGate(request, env);
+  if (denied) return denied;
+  const b = await request.json().catch(() => ({}));
+  await env.DB.prepare("UPDATE apk_jobs SET dl_blocked = ? WHERE id = ?").bind(b.blocked ? 1 : 0, id).run();
+  return json({ ok: true });
 }
 
 // ---------------------------------------------------------------- helpers
@@ -123,6 +213,8 @@ function bytesToBase64(bytes) {
 // ---------------------------------------------------------------- API: create a build
 
 async function createBuild(request, env) {
+  const denied = await requireGate(request, env);
+  if (denied) return denied;
   if (!env.GH_TOKEN || !env.BUILD_SECRET) {
     return fail("השרת עדיין לא הוגדר (חסרים GH_TOKEN או BUILD_SECRET).", 500);
   }
@@ -147,7 +239,8 @@ async function createBuild(request, env) {
     const title = cleanText(s?.title, 40) || new URL(url).hostname;
     sites.push({ title, url, restrictPath: !!s?.restrictPath });
   }
-  if (type === "site" && !sites.length) return fail("נא להזין לפחות כתובת אתר אחת");
+  const restoreTool = type === "site" && !!body.restoreTool;
+  if (type === "site" && !sites.length && !restoreTool) return fail("נא להזין לפחות כתובת אתר אחת");
 
   const extraDomains = [];
   for (const d of Array.isArray(body.extraDomains) ? body.extraDomains.slice(0, MAX_EXTRA) : []) {
@@ -214,11 +307,21 @@ async function createBuild(request, env) {
       config = { type, appKey: m.id, manageKey: m.key, server, pinSalt, pinHash, pinAlgo: "p1" };
     }
   } else {
-    const firstHost = new URL(sites[0].url).hostname.replace(/^www\./, "");
-    appId = "uk.smti.app.a" + (await sha256Hex(firstHost + "|" + appName)).slice(0, 12);
+    // clean default package name: com.smt.<slug from the app name>, no country/hash.
+    const slug = appName.toLowerCase().replace(/[^a-z0-9]+/g, "").slice(0, 24) || "browser";
+    appId = "com.smt." + slug;
     config = { sites, extraDomains, orientation, toolbar, desktop, pinSalt, pinHash };
+    if (restoreTool) config.restoreTool = true;
   }
   if (prevJob) appId = prevJob.app_id;
+  // Manager override (gated area only): pin an exact package name. Used to update an app already installed
+  // on a device in place — same signature + same package = Android installs it as an update and keeps all
+  // the app's data (bookmarks, cookies, history, settings). Pin one name to always upgrade in place.
+  const wantId = cleanText(body.appId, 120).toLowerCase();
+  if (wantId) {
+    if (!/^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$/.test(wantId)) return fail(`שם החבילה "${body.appId}" לא תקין (למשל uk.smti.app.xxxxx)`);
+    appId = wantId;
+  }
 
   const now = Date.now();
   const ip = request.headers.get("cf-connecting-ip") || "";
@@ -345,7 +448,12 @@ async function jobStatus(env, id, origin) {
 
 async function download(env, id) {
   await ensureSchema(env);
-  const job = await env.DB.prepare(`SELECT app_name, status, chunks FROM apk_jobs WHERE id = ?`).bind(id).first();
+  const job = await env.DB.prepare(`SELECT app_name, status, chunks, dl_blocked FROM apk_jobs WHERE id = ?`).bind(id).first();
+  if (job && job.dl_blocked) {
+    return new Response("ההורדה של אפליקציה זו הושבתה על ידי המנהל.", {
+      status: 403, headers: { "content-type": "text/plain; charset=utf-8" },
+    });
+  }
   if (!job || job.status !== "done" || !job.chunks) {
     return new Response("הקובץ לא נמצא או שפג תוקפו. אפשר לבנות אותו מחדש באתר (עדכון לאפליקציה קיימת).", {
       status: 404, headers: { "content-type": "text/plain; charset=utf-8" },
@@ -517,6 +625,10 @@ export default {
         });
       }
       if (path === "/api/build" && method === "POST") return await createBuild(request, env);
+      if (path === "/api/gate" && method === "POST") { const d = await requireGate(request, env); return d || json({ ok: true }); }
+      if (path === "/api/gate/setup" && method === "POST") return await setupGate(request, env);
+      if (path === "/api/gate/change" && method === "POST") return await setGate(request, env);
+      if (path === "/api/mybuilds" && method === "GET") return await myBuilds(request, env, url.origin);
       if (/^\/mdm\/[a-f0-9]{24}$/.test(path) && method === "GET") {
         return new Response(renderMdmPage(), {
           headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache", "referrer-policy": "no-referrer", "x-robots-tag": "noindex" },
@@ -529,10 +641,15 @@ export default {
 
       let m;
       if ((m = /^\/api\/jobs\/([a-f0-9]{24})$/.exec(path)) && method === "GET") {
+        const d = await requireGate(request, env); if (d) return d;
         return await jobStatus(env, m[1], url.origin);
       }
       if ((m = /^\/api\/jobs\/([a-f0-9]{24})\/settings$/.exec(path)) && method === "GET") {
+        const d = await requireGate(request, env); if (d) return d;
         return await jobSettings(env, m[1]);
+      }
+      if ((m = /^\/api\/jobs\/([a-f0-9]{24})\/block$/.exec(path)) && method === "POST") {
+        return await blockDownload(request, env, m[1]);
       }
       if ((m = /^\/download\/([a-f0-9]{24})$/.exec(path)) && method === "GET") {
         return await download(env, m[1]);

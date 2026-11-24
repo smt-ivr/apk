@@ -116,21 +116,160 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         config = new Config(this);
         prefs = getSharedPreferences("browser", MODE_PRIVATE);
+        // One-time restore tool: a build with the old package name, opened just to export its data.
+        if (config.restoreTool) {
+            showRestoreTool();
+            return;
+        }
         bridgeJs = readAsset("bridge.js");
         applyOrientation();
         buildUi();
         if (savedInstanceState != null && web.restoreState(savedInstanceState) != null) {
             showWeb();
-        } else {
+        } else if (!openViewIntent(getIntent())) {
             showStart();
         }
         handleNotificationTap(getIntent());
+        maybeFirstRunCode();
     }
 
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
-        handleNotificationTap(intent);
+        if (!openViewIntent(intent)) handleNotificationTap(intent);
+    }
+
+    /** A link opened from another app (Gmail etc.) when this is the device browser. true = handled. */
+    private boolean openViewIntent(Intent intent) {
+        if (intent == null || web == null) return false;
+        if (!Intent.ACTION_VIEW.equals(intent.getAction())) return false;
+        Uri data = intent.getData();
+        if (data == null) return false;
+        String url = data.toString();
+        String scheme = data.getScheme();
+        if (scheme == null || !(scheme.equalsIgnoreCase("http") || scheme.equalsIgnoreCase("https"))) return false;
+        if (config.isAllowed(url)) {
+            open(url);
+        } else {
+            showHomeSafe();
+            onBlocked(url);
+        }
+        return true;
+    }
+
+    private void showHomeSafe() {
+        if (config.sites.size() != 1) showHome();
+    }
+
+    /** First open with no code set: offer to choose one (there is no default code). */
+    private void maybeFirstRunCode() {
+        if (config.hasPin() || prefs.getBoolean("setup_done", false)) return;
+        prefs.edit().putBoolean("setup_done", true).apply();
+        final EditText input = new EditText(this);
+        input.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD);
+        input.setGravity(Gravity.CENTER);
+        FrameLayout box = new FrameLayout(this);
+        box.setPadding(dp(24), dp(8), dp(24), 0);
+        box.addView(input);
+        new AlertDialog.Builder(this)
+                .setTitle("בחירת קוד הגדרות")
+                .setMessage("בחרו קוד (4 ספרות ומעלה) שיגן על ההגדרות של האפליקציה במכשיר הזה. אפשר גם לדלג ולבחור מאוחר יותר.")
+                .setView(box)
+                .setPositiveButton("שמירה", (d, w) -> {
+                    String p = input.getText().toString().trim();
+                    if (p.length() >= 4) {
+                        config.setPin(p);
+                        Toast.makeText(this, "הקוד נשמר", Toast.LENGTH_SHORT).show();
+                    } else {
+                        Toast.makeText(this, "הקוד קצר מדי, לא נשמר", Toast.LENGTH_SHORT).show();
+                    }
+                })
+                .setNegativeButton("דילוג", null)
+                .show();
+    }
+
+    /** The one-time restore tool screen: shows the export code from the app it updated in place. */
+    private void showRestoreTool() {
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setBackgroundColor(color(R.color.page));
+        int p = dp(22);
+        col.setPadding(p, dp(36), p, p);
+        TextView h = new TextView(this);
+        h.setText("כלי שחזור הגדרות");
+        h.setTextSize(22);
+        h.setTypeface(Typeface.DEFAULT_BOLD);
+        h.setTextColor(color(R.color.bar_text));
+        col.addView(h);
+        TextView m = new TextView(this);
+        m.setText("זהו העתק זמני של האפליקציה הקיימת. הקוד למטה מכיל את האתרים והקוד שלה. העתיקו אותו, ובאפליקציה החדשה: תפריט ← הגדרות ← ייבוא. אחר כך אפשר למחוק את הכלי הזה.");
+        m.setTextColor(color(R.color.bar_muted));
+        m.setPadding(0, dp(10), 0, dp(16));
+        col.addView(m);
+        final EditText codeBox = new EditText(this);
+        codeBox.setText(config.exportCode());
+        codeBox.setKeyListener(null);
+        codeBox.setTextSize(12);
+        codeBox.setTextColor(color(R.color.bar_text));
+        codeBox.setBackground(rounded(color(R.color.bar), dp(12)));
+        codeBox.setPadding(dp(14), dp(12), dp(14), dp(12));
+        col.addView(codeBox, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(160)));
+        Button copy = new Button(this);
+        copy.setText("העתקת הקוד");
+        copy.setOnClickListener(v -> {
+            copyText(config.exportCode(), "הקוד הועתק");
+            Toast.makeText(this, "הקוד הועתק. הדביקו אותו בייבוא באפליקציה החדשה.", Toast.LENGTH_LONG).show();
+        });
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = dp(16);
+        col.addView(copy, lp);
+        Button share = new Button(this);
+        share.setText("שיתוף הקוד");
+        share.setOnClickListener(v -> share(config.exportCode(), "קוד הגדרות"));
+        col.addView(share, lp);
+        setContentView(col);
+    }
+
+    /** A blocked page: offer to open it, in admin mode (with the code), by adding it to the allowed list. */
+    private void onBlocked(String url) {
+        final String host = Config.hostOf(url);
+        new AlertDialog.Builder(this)
+                .setTitle("הכתובת חסומה")
+                .setMessage(host + "\nאינה ברשימת האתרים המורשים.")
+                .setPositiveButton("הוספה לרשימה (קוד)", (d, w) -> askCode("הוספת " + host + " לרשימה", () -> {
+                    if (config.allowHost(url)) {
+                        Toast.makeText(this, "נוסף לרשימה", Toast.LENGTH_SHORT).show();
+                        open(url);
+                    } else {
+                        Toast.makeText(this, "הכתובת לא תקינה", Toast.LENGTH_SHORT).show();
+                    }
+                }))
+                .setNegativeButton("סגירה", null)
+                .show();
+    }
+
+    /** Ask for the admin code (or the hidden master code), then run the action. */
+    private void askCode(String title, Runnable onOk) {
+        long wait = config.lockRemaining();
+        if (wait > 0) {
+            Toast.makeText(this, "יותר מדי ניסיונות. נסה שוב בעוד " + (wait / 1000 + 1) + " שניות", Toast.LENGTH_LONG).show();
+            return;
+        }
+        final EditText input = new EditText(this);
+        input.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD);
+        input.setGravity(Gravity.CENTER);
+        FrameLayout box = new FrameLayout(this);
+        box.setPadding(dp(24), dp(8), dp(24), 0);
+        box.addView(input);
+        new AlertDialog.Builder(this)
+                .setTitle(title)
+                .setView(box)
+                .setPositiveButton("אישור", (d, w) -> {
+                    if (config.checkPin(input.getText().toString())) onOk.run();
+                    else Toast.makeText(this, "קוד שגוי", Toast.LENGTH_SHORT).show();
+                })
+                .setNegativeButton("ביטול", null)
+                .show();
     }
 
     @Override
@@ -380,7 +519,7 @@ public class MainActivity extends Activity {
         }
         m.add(0, M_HIDE_BAR, 5, "הסתרת הסרגל");
         if (config.sites.size() > 1 && !onHome) m.add(0, M_HOME, 6, "מסך הבית");
-        if (config.hasPin()) m.add(0, M_SETTINGS, 7, "הגדרות");
+        m.add(0, M_SETTINGS, 7, "הגדרות");
         pm.setOnMenuItemClickListener(this::onMenu);
         pm.show();
     }
@@ -708,7 +847,7 @@ public class MainActivity extends Activity {
     private class Client extends WebViewClient {
         private boolean check(String url) {
             if (config.isAllowed(url)) return false;
-            blocked();
+            onBlocked(url);
             return true;
         }
 
