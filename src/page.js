@@ -26,6 +26,7 @@ export function renderPage() {
   }
 }
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 html,body{margin:0}
 body{font-family:"Heebo",system-ui,-apple-system,"Segoe UI",Arial,sans-serif;background:var(--bg);color:var(--text);line-height:1.5}
 .wrap{max-width:680px;margin:0 auto;padding:28px 16px 64px}
