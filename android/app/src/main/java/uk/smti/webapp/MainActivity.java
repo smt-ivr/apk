@@ -121,6 +121,11 @@ public class MainActivity extends Activity {
             showRestoreTool();
             return;
         }
+        // The app may not be used without a local code: force setting one first.
+        if (!config.hasPin()) {
+            showSetCodeScreen();
+            return;
+        }
         bridgeJs = readAsset("bridge.js");
         applyOrientation();
         buildUi();
@@ -130,7 +135,6 @@ public class MainActivity extends Activity {
             showStart();
         }
         handleNotificationTap(getIntent());
-        maybeFirstRunCode();
     }
 
     @Override
@@ -161,31 +165,68 @@ public class MainActivity extends Activity {
         if (config.sites.size() != 1) showHome();
     }
 
-    /** First open with no code set: offer to choose one (there is no default code). */
-    private void maybeFirstRunCode() {
-        if (config.hasPin() || prefs.getBoolean("setup_done", false)) return;
-        prefs.edit().putBoolean("setup_done", true).apply();
-        final EditText input = new EditText(this);
-        input.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD);
-        input.setGravity(Gravity.CENTER);
-        FrameLayout box = new FrameLayout(this);
-        box.setPadding(dp(24), dp(8), dp(24), 0);
-        box.addView(input);
-        new AlertDialog.Builder(this)
-                .setTitle("בחירת קוד הגדרות")
-                .setMessage("בחרו קוד (4 ספרות ומעלה) שיגן על ההגדרות של האפליקציה במכשיר הזה. אפשר גם לדלג ולבחור מאוחר יותר.")
-                .setView(box)
-                .setPositiveButton("שמירה", (d, w) -> {
-                    String p = input.getText().toString().trim();
-                    if (p.length() >= 4) {
-                        config.setPin(p);
-                        Toast.makeText(this, "הקוד נשמר", Toast.LENGTH_SHORT).show();
-                    } else {
-                        Toast.makeText(this, "הקוד קצר מדי, לא נשמר", Toast.LENGTH_SHORT).show();
-                    }
-                })
-                .setNegativeButton("דילוג", null)
-                .show();
+    /** Mandatory on first open: a full screen that forces setting a local code before the app can be used. */
+    private void showSetCodeScreen() {
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setGravity(Gravity.CENTER_HORIZONTAL);
+        col.setBackgroundColor(color(R.color.page));
+        int p = dp(26);
+        col.setPadding(p, dp(70), p, p);
+
+        TextView h = new TextView(this);
+        h.setText(getString(R.string.app_name));
+        h.setTextSize(24);
+        h.setTypeface(Typeface.DEFAULT_BOLD);
+        h.setTextColor(color(R.color.bar_text));
+        h.setGravity(Gravity.CENTER);
+        col.addView(h);
+        TextView m = new TextView(this);
+        m.setText("כדי להשתמש באפליקציה צריך לקבוע קוד (4 ספרות ומעלה). הקוד מגן על ההגדרות במכשיר הזה.");
+        m.setTextColor(color(R.color.bar_muted));
+        m.setGravity(Gravity.CENTER);
+        m.setPadding(0, dp(12), 0, dp(22));
+        col.addView(m);
+
+        final EditText c1 = codeField("קוד חדש");
+        final EditText c2 = codeField("שוב את הקוד");
+        col.addView(c1, codeLp());
+        col.addView(c2, codeLp());
+
+        Button save = new Button(this);
+        save.setText("שמירה והתחלה");
+        save.setAllCaps(false);
+        save.setTextSize(16);
+        LinearLayout.LayoutParams sp = codeLp();
+        sp.topMargin = dp(18);
+        col.addView(save, sp);
+        setContentView(col);
+        c1.requestFocus();
+
+        save.setOnClickListener(v -> {
+            String a = c1.getText().toString().trim(), b = c2.getText().toString().trim();
+            if (a.length() < 4) { Toast.makeText(this, "הקוד צריך להיות לפחות 4 ספרות", Toast.LENGTH_SHORT).show(); return; }
+            if (!a.equals(b)) { Toast.makeText(this, "הקודים לא תואמים", Toast.LENGTH_SHORT).show(); return; }
+            config.setPin(a);
+            Toast.makeText(this, "הקוד נשמר", Toast.LENGTH_SHORT).show();
+            recreate();
+        });
+    }
+
+    private EditText codeField(String hint) {
+        EditText e = new EditText(this);
+        e.setHint(hint);
+        e.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD);
+        e.setGravity(Gravity.CENTER);
+        e.setTextSize(20);
+        e.setTextColor(color(R.color.bar_text));
+        return e;
+    }
+
+    private LinearLayout.LayoutParams codeLp() {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = dp(10);
+        return lp;
     }
 
     /** The one-time restore tool screen: shows the export code from the app it updated in place. */
@@ -800,6 +841,10 @@ public class MainActivity extends Activity {
     }
 
     private void goBack() {
+        if (web == null) { // set-code / restore screen: back just leaves the app
+            moveTaskToBack(true);
+            return;
+        }
         if (fullscreenView != null) hideFullscreen();
         else if (findBar.getVisibility() == View.VISIBLE) {
             web.clearMatches();
