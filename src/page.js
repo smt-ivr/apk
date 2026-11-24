@@ -104,7 +104,7 @@ footer{text-align:center;color:var(--muted);font-size:13px;margin-top:20px}
     <p class="err" id="gateErr" role="alert" style="margin-top:10px"></p>
   </div>
 </div>
-<div id="builds" class="drawer-overlay" hidden style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:40;display:flex;justify-content:flex-start">
+<div id="builds" class="drawer-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:60;display:none;justify-content:flex-start">
   <div style="background:var(--bg);width:min(560px,100%);height:100%;overflow:auto;padding:18px">
     <div style="display:flex;align-items:center;gap:8px"><h2 style="flex:1;margin:0">הבניות שלי</h2><button type="button" class="btn" id="buildsClose">סגירה</button></div>
     <p class="small">כל האפליקציות שנבנו. אפשר להעתיק קישור הורדה, או לחסום הורדה.</p>
@@ -635,8 +635,8 @@ footer{text-align:center;color:var(--muted);font-size:13px;margin-top:20px}
       await gfetch("/jobs/" + el.dataset.block + "/block", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ blocked: el.checked }) });
     });
   }
-  if ($("myBuilds")) $("myBuilds").onclick = () => { $("builds").hidden = false; loadBuilds(); };
-  $("buildsClose").onclick = () => { $("builds").hidden = true; };
+  if ($("myBuilds")) $("myBuilds").onclick = () => { $("builds").style.display = "flex"; loadBuilds(); };
+  $("buildsClose").onclick = () => { $("builds").style.display = "none"; };
 
   (async () => {
     const state = await gateState(buildCode).catch(() => "login");
