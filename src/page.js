@@ -245,7 +245,7 @@ footer{text-align:center;color:var(--muted);font-size:13px;margin-top:20px}
       <label class="check"><input type="checkbox" id="optDesktop"> <span><b>מצב מחשב</b> כברירת מחדל (אפשר להחליף גם מתוך האפליקציה).</span></label>
       <p class="hint" style="margin-top:12px">עם קוד, בתפריט האפליקציה יהיה מסך הגדרות שבו אפשר להוסיף ולהסיר אתרים בלי לבנות אפליקציה חדשה. בלי קוד, הרשימה קבועה.</p>
       <label class="f" for="appId">שם חבילה קבוע <span class="small">(applicationId — לעדכון אפליקציה שכבר מותקנת)</span></label>
-      <input type="text" id="appId" class="ltr" placeholder="com.smt.browser">
+      <input type="text" id="appId" class="ltr" placeholder="com.smt.browser" value="uk.smti.app.afb683b9fc12b">
       <p class="hint" style="margin-top:6px">הדביקו כאן את שם החבילה של האפליקציה הקיימת במכשיר כדי להתקין על גביה כעדכון — <b>כל הנתונים נשמרים</b> (סימניות, היסטוריה, עוגיות). השתמשו תמיד באותו שם, וכל שדרוג יתעדכן במקום.</p>
       <label class="check" style="margin-top:10px"><input type="checkbox" id="optRestore"> <span><b>בניית כלי שחזור</b> מאפליקציה קיימת (עם שם חבילה שונה). הדביקו למעלה את שם החבילה של האפליקציה הקיימת. הכלי יתעדכן על גביה, ובפתיחה יציג קוד לייצוא — שתדביקו בייבוא באפליקציה החדשה. (אתרים והקוד עוברים; התחברויות ועוגיות רק בעדכון על אותו שם חבילה.)</span></label>
     </div>
