@@ -33,10 +33,8 @@ public class SettingsActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         config = new Config(this);
-        if (!config.hasPin()) { // never open unprotected
-            finish();
-            return;
-        }
+        // Settings is only ever launched after the code (or master code) was verified, so it opens
+        // even when no local code was set yet (that is exactly when the master code is needed).
 
         ScrollView scroll = new ScrollView(this);
         scroll.setBackgroundColor(Color.parseColor("#F4F6FA"));
