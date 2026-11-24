@@ -45,6 +45,10 @@ public class SettingsActivity extends Activity {
         col.setPadding(dp(16), dp(16), dp(16), dp(32));
         scroll.addView(col);
 
+        String ver;
+        try { ver = getPackageManager().getPackageInfo(getPackageName(), 0).versionName; } catch (Exception e) { ver = "?"; }
+        col.addView(note("גרסה " + ver));
+
         col.addView(heading("אתרים"));
         col.addView(note("כל אתר מופיע כלחצן במסך הבית. גם תתי-האתרים שלו מותרים."));
         siteRows = new LinearLayout(this);

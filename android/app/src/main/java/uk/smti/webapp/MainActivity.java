@@ -506,6 +506,10 @@ public class MainActivity extends Activity {
 
     // ------------------------------------------------------------------ menu
 
+    private String versionName() {
+        try { return getPackageManager().getPackageInfo(getPackageName(), 0).versionName; } catch (Exception e) { return "?"; }
+    }
+
     private void showPageMenu(View anchor) {
         PopupMenu pm = new PopupMenu(this, anchor);
         Menu m = pm.getMenu();
@@ -520,6 +524,7 @@ public class MainActivity extends Activity {
         m.add(0, M_HIDE_BAR, 5, "הסתרת הסרגל");
         if (config.sites.size() > 1 && !onHome) m.add(0, M_HOME, 6, "מסך הבית");
         m.add(0, M_SETTINGS, 7, "הגדרות");
+        m.add(0, 0, 99, "גרסה " + versionName()).setEnabled(false);
         pm.setOnMenuItemClickListener(this::onMenu);
         pm.show();
     }
@@ -751,6 +756,14 @@ public class MainActivity extends Activity {
             lp.bottomMargin = dp(10);
             list.addView(card, lp);
         }
+
+        TextView ver = new TextView(this);
+        ver.setText("גרסה " + versionName());
+        ver.setTextColor(color(R.color.bar_muted));
+        ver.setTextSize(12);
+        ver.setGravity(Gravity.CENTER);
+        ver.setPadding(0, dp(24), 0, 0);
+        list.addView(ver);
 
         home.removeAllViews();
         home.addView(list);
