@@ -240,7 +240,7 @@ async function createBuild(request, env) {
     sites.push({ title, url, restrictPath: !!s?.restrictPath });
   }
   const restoreTool = type === "site" && !!body.restoreTool;
-  if (type === "site" && !sites.length && !restoreTool) return fail("נא להזין לפחות כתובת אתר אחת");
+  // a browser can be built with no sites; they can be added inside the app (master code -> settings)
 
   const extraDomains = [];
   for (const d of Array.isArray(body.extraDomains) ? body.extraDomains.slice(0, MAX_EXTRA) : []) {

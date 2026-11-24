@@ -321,12 +321,14 @@ footer{text-align:center;color:var(--muted);font-size:13px;margin-top:20px}
     <button type="button" class="btn" id="again" style="margin-top:12px" hidden>יצירת אפליקציה נוספת</button>
   </div>
 
-  <footer>SMT · הקוד של האפליקציה פתוח ומבוסס על AndroidRestrictedWebView (GPL-3.0)</footer>
+  <footer>SMT · גרסת אתר <span id="siteVer"></span></footer>
 </div>
 
 <script>
 (function () {
   const $ = (id) => document.getElementById(id);
+  const SITE_VER = "2026-11-24.1";
+  (function(){ const e = document.getElementById("siteVer"); if (e) e.textContent = SITE_VER; })();
   const API = location.pathname.replace(/\\/$/, "") + "/api";
   let buildCode = ""; try { buildCode = sessionStorage.getItem("buildCode") || ""; } catch (e) {}
   function gfetch(path, opts) {
@@ -437,9 +439,12 @@ footer{text-align:center;color:var(--muted);font-size:13px;margin-top:20px}
 
   // ---------- icon: center-crop to a 512px square PNG ----------
   let iconData = "";
+  try { iconData = localStorage.getItem("apkIcon") || ""; } catch (e) {}
+  if (iconData) { $("iconPrev").innerHTML = ""; const pi = new Image(); pi.src = iconData; $("iconPrev").appendChild(pi); $("iconClear").hidden = false; }
   $("iconBtn").onclick = () => $("iconFile").click();
   $("iconClear").onclick = () => {
     iconData = "";
+    try { localStorage.removeItem("apkIcon"); } catch (e) {}
     $("iconPrev").textContent = "אוטומטי";
     $("iconClear").hidden = true;
     $("iconFile").value = "";
@@ -456,6 +461,7 @@ footer{text-align:center;color:var(--muted);font-size:13px;margin-top:20px}
       c.getContext("2d").drawImage(img,
         (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, size, size);
       iconData = c.toDataURL("image/png");
+      try { localStorage.setItem("apkIcon", iconData); } catch (e) {}
       $("iconPrev").innerHTML = "";
       const p = new Image();
       p.src = iconData;
@@ -504,7 +510,7 @@ footer{text-align:center;color:var(--muted);font-size:13px;margin-top:20px}
       if (!looksLikeUrl(url)) { box.querySelector(".url").focus(); return showErr('הכתובת "' + url + '" לא תקינה'); }
       sites.push({ title: box.querySelector(".title").value.trim(), url, restrictPath: box.querySelector(".restrict").checked });
     }
-    if (!sites.length && !$("optRestore").checked) { $("sites").querySelector(".url").focus(); return showErr("נא להזין לפחות כתובת אתר אחת"); }
+    // sites are optional for the browser: they can be added inside the app
     if ($("optRestore").checked && !$("appId").value.trim()) { $("appId").focus(); return showErr("לכלי שחזור צריך להדביק את שם החבילה של האפליקציה הקיימת"); }
 
     const extraDomains = $("extra").value.split(/[\\s,]+/).map((s) => s.trim()).filter(Boolean);
